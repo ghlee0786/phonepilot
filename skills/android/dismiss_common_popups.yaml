@@ -1,0 +1,20 @@
+name: android.dismiss_common_popups
+version: 1.0.0
+description: 권한·업데이트·평가 요청 팝업을 '나중에/거부/닫기' 쪽으로 닫는다 (AG-09)
+tags: [android, utility]
+steps:
+  - id: dismiss
+    type: loop
+    max_iter: 3
+    until:
+      text_gone: "나중에"
+      timeout_ms: 500
+    steps:
+      - id: tap_dismiss
+        action: tap
+        optional: true
+        args:
+          selector:
+            text_any: ["나중에", "허용 안함", "허용 안 함", "거부", "닫기", "아니요", "Not now", "Deny", "Don't allow", "No thanks", "Close"]
+          reason: 팝업 닫기
+        retry: 0

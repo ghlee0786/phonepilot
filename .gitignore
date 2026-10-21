@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+vendor/
+.env
+.env.*
+!.env.example
+secrets.meta.yaml
+*.log
+.pytest_cache/
+build/
+dist/

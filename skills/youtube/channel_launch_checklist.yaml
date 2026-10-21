@@ -1,0 +1,29 @@
+name: youtube.channel_launch_checklist
+version: 1.0.0
+description: >-
+  워크플로 C — '에이징' 대신 정책을 지키는 채널 출시 점검. 화면을 읽기만 하고 좋아요·구독·댓글·시청 자동화는 하지 않는다 (PRD 16장).
+tags: [youtube, workflow-c]
+requires:
+  packages: [com.google.android.youtube]
+steps:
+  - id: open_youtube
+    action: launch_app
+    args: {package: com.google.android.youtube, reason: YouTube 열기}
+    expect: {package: com.google.android.youtube, timeout_ms: 10000}
+  - id: open_channel
+    type: agent_step
+    description: 내 채널 페이지 열기 (읽기 전용)
+    goal: >-
+      '나' 탭에서 '채널 보기'(View channel)를 눌러 내 채널 페이지를 연다. 좋아요·구독·댓글은 누르지 않는다.
+    success: {text_any: ["채널 맞춤설정", "Customize channel", "채널 관리", "Manage videos"], timeout_ms: 15000}
+    max_actions: 6
+  - id: read_profile
+    type: observe
+    capture: channel_page
+  - id: checklist_review
+    type: human
+    kind: question
+    instructions: >-
+      출시 체크리스트(PRD 16.2) — 1 이름·핸들·프로필·배너, 2 설명 첫 2줄, 3 키워드, 4 기본 업로드 설정, 5 아동용 설정,
+      6 재생목록, 7 대표 영상 계획, 8 4주 캘린더, 9 중급 기능 자격, 10 커뮤니티 가이드.
+      내장 에이전트 패널의 보고서 탭에서 결과를 확인한 뒤 [계속]을 눌러 주세요.

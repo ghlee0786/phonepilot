@@ -1,0 +1,30 @@
+name: google.open_security_page
+version: 1.2.0
+description: 기기 설정에서 Google 계정 관리의 보안 탭을 연다 (PRD 11.2 예시)
+tags: [google]
+locales: [ko, en]
+requires:
+  packages: [com.android.settings, com.google.android.gms]
+steps:
+  - id: open_settings
+    action: launch_app
+    args: {package: com.android.settings, reason: 설정 열기}
+    expect: {package: com.android.settings, timeout_ms: 8000}
+  - id: find_google
+    action: scroll_to
+    args:
+      selector: {text_any: ["Google", "구글"]}
+    then: tap
+    expect: {text_any: ["Google 계정 관리", "Manage your Google Account", "Google 계정"], timeout_ms: 10000}
+  - id: open_account
+    action: tap
+    args:
+      selector: {text_any: ["Google 계정 관리", "Manage your Google Account"]}
+      reason: 계정 관리 열기
+    expect: {text_any: ["보안", "Security"], timeout_ms: 15000}
+  - id: security_tab
+    action: tap
+    args:
+      selector: {text_any: ["보안", "Security"]}
+      reason: 보안 탭
+    expect: {text_any: ["2단계 인증", "2-Step Verification"], timeout_ms: 10000}

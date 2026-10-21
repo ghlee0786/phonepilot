@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "phonepilot": {
+      "type": "stdio",
+      "command": "<repo>\\.venv\\Scripts\\phonepilot-mcp.exe",
+      "args": []
+    },
+    "phonepilot-http": {
+      "type": "http",
+      "url": "http://127.0.0.1:47800/mcp",
+      "headers": {"Authorization": "Bearer ${PHONEPILOT_MCP_TOKEN}"}
+    }
+  }
+}

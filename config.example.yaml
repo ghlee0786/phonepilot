@@ -1,0 +1,61 @@
+# PhonePilot 설정 (PRD 21.2). 비밀값은 넣지 않는다.
+version: 1
+video:
+  preset: balanced
+  codec: h264
+  max_size: 1920
+  bit_rate_mbps: 8
+  max_fps: 60
+  decoder: auto
+  encoder: null
+input:
+  mod_key: left_alt
+  keyboard_mode: text
+  non_ascii_path: clipboard
+connection:
+  adb_path: null
+  remove_server_on_exit: false
+mcp:
+  port: 47800
+  token_fixed: false
+  headless_actions: false
+agent:
+  model: claude-opus-5-5
+  planner_model: claude-opus-5-5
+  session_budget_usd: 5
+  step_budget: 300
+  screenshot_max_edge: 1280
+  send_images_in_sensitive_apps: false
+safety:
+  approval_timeout_s: 120
+  sensitive_apps_file: policy/sensitive_apps.yaml
+  keywords_file: policy/keywords.yaml
+  limits:
+    in_app_purchase_daily_krw: 0
+    order_max_krw: 100000
+    order_daily_krw: 300000
+    order_daily_count: 10
+    engagement_daily: 5
+  allowed_symbols: []
+privacy:
+  env_path: '%APPDATA%/PhonePilot/.env'
+  clipboard_sync: true
+  clear_device_clipboard_on_exit: true
+  close_recents_on_exit: false
+  debug_file_log: false
+  curtain: on_share
+recovery_vault:
+  dir: '%USERPROFILE%/Documents/PhonePilot-Recovery'
+  format: plaintext_acl
+integrations:
+  youtube:
+    enabled: false
+    env: mock
+  upbit:
+    enabled: false
+    env: real
+  kis:
+    enabled: false
+    env: mock
+allowed_push_dirs:
+- '%USERPROFILE%/Documents/PhonePilot-Assets'

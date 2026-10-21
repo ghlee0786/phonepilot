@@ -1,0 +1,139 @@
+name: google.account_with_totp
+version: 1.0.0
+description: >-
+  워크플로 A — 사용자 동석 하에 구글 계정 1개를 만들고, OTP 앱(인증자)을 유일한 추가 수단으로 2단계 인증을 켠 뒤
+  백업 코드 10개를 복구 코드 보관함에 저장하고, 2단계 수단에 전화번호가 없는지 검증한다 (PRD 14장).
+tags: [google, workflow-a]
+sensitive: true
+account_creation: true
+inputs:
+  alias:
+    type: string
+    default: MAIN
+    description: .env 키의 계정 별칭 (GOOGLE_<alias>_*, PROFILE_<alias>_*)
+requires:
+  min_sdk: 26
+  packages: [com.android.settings, com.google.android.gms]
+on_error: {retry: 1, then: agent_recover}
+steps:
+  # ---------------------------------------------------------------- A: account
+  - id: start_signup
+    type: agent_step
+    description: 기기 설정의 계정 추가에서 Google → 계정 만들기 → 개인용을 선택해 이름 입력 화면까지 이동
+    goal: >-
+      기기 설정 앱에서 '계정'(삼성: 계정 및 백업 > 계정 관리, 픽셀: 비밀번호 및 계정) > 계정 추가 > Google 로 이동한 뒤
+      '계정 만들기' > '개인용'을 선택해 이름 입력 화면까지 간다. 이미 이름 입력 화면이면 아무것도 하지 않는다.
+    success: {text_any: ["이름", "First name", "성(선택사항)", "Last name"], timeout_ms: 20000}
+    max_actions: 20
+  - id: enter_name
+    type: agent_step
+    description: type_profile 로 이름/성 입력 후 다음
+    goal: >-
+      이름 입력란에 type_profile(ref='PROFILE_{{inputs.alias}}_FIRST_NAME'), 성 입력란에 type_profile(ref='PROFILE_{{inputs.alias}}_LAST_NAME')를 입력하고 '다음'을 누른다.
+    success: {text_any: ["생년월일", "Birthday", "기본 정보", "Basic information"], timeout_ms: 15000}
+    max_actions: 8
+  - id: basic_info
+    type: agent_step
+    description: 생년월일·성별 입력
+    goal: >-
+      .env 의 PROFILE_{{inputs.alias}}_BIRTH_DATE(YYYY-MM-DD)와 PROFILE_{{inputs.alias}}_GENDER 값을 type_profile 과 선택 목록으로 입력하고 '다음'을 누른다.
+      값은 list_secret_refs 로 확인할 수 있는 ref 이름으로만 다룬다.
+    success: {text_any: ["Gmail 주소", "Gmail address", "주소 선택", "Choose your Gmail address", "직접 만들기"], timeout_ms: 15000}
+    max_actions: 15
+  - id: choose_address
+    type: agent_step
+    description: 희망 주소 중 사용 가능한 것으로 Gmail 주소 생성
+    goal: >-
+      제안 주소는 고르지 말고 '직접 만들기'를 선택한다. GOOGLE_{{inputs.alias}}_DESIRED_USERNAMES 에 있는 후보를 순서대로
+      type_profile 로 입력해 '다음'. '이미 사용 중' 오류가 나오면 다음 후보. 모두 실패하면 request_human(kind='question')으로 새 후보를 묻는다.
+    success: {text_any: ["비밀번호 만들기", "Create a strong password", "비밀번호"], timeout_ms: 15000}
+    max_actions: 15
+  - id: set_password
+    type: agent_step
+    description: 비밀번호와 확인란에 type_secret 주입
+    goal: >-
+      '비밀번호' 입력란과 '확인' 입력란 각각에 type_secret(ref='GOOGLE_{{inputs.alias}}_PASSWORD')을 사용한다. '비밀번호 표시'는 누르지 않는다. 그 다음 '다음'.
+    success: {text_gone: "비밀번호 만들기", timeout_ms: 15000}
+    max_actions: 6
+  - id: google_checks
+    type: branch
+    description: CAPTCHA·전화 인증 화면이면 사람에게
+    condition: {text_any: ["로봇이 아닙니다", "보안문자", "전화번호 인증", "Verify your phone number", "확인 코드", "I'm not a robot"], timeout_ms: 2000}
+    goto: human_checks
+    else_goto: recovery_options
+  - id: human_checks
+    type: human
+    kind: phone_verification
+    instructions: >-
+      구글이 로봇 확인 또는 전화번호 확인을 요구합니다. 폰에서 직접 처리한 뒤 [계속]을 눌러 주세요.
+      (가입 확인용 전화번호는 2단계 인증 수단이 아닙니다. 마지막 단계에서 2단계 수단에 전화가 없는지 검증합니다.)
+  - id: recovery_options
+    type: agent_step
+    description: 복구 이메일은 .env 에 있으면 입력, 복구 전화번호는 건너뛰기
+    goal: >-
+      복구 이메일 화면이면 GOOGLE_{{inputs.alias}}_RECOVERY_EMAIL 이 list_secret_refs 에 있을 때만 type_profile 로 입력하고 아니면 '건너뛰기'.
+      복구 전화번호 추가 화면은 항상 '건너뛰기'.
+    success: {text_any: ["개인정보 보호 및 약관", "Privacy and Terms", "약관", "계정 정보 검토", "Review your account info"], timeout_ms: 20000}
+    max_actions: 10
+  - id: review_terms
+    type: approval
+    title: 구글 약관 동의
+    summary: 폰 화면의 개인정보 보호 및 약관을 직접 읽어 주세요. 승인하면 AI가 '동의'를 누릅니다.
+    risk: high
+  - id: agree
+    type: agent_step
+    description: 약관 동의
+    goal: 약관 화면을 끝까지 스크롤하고 '동의' 또는 'I agree'를 누른다. 맞춤설정 선택 화면이 나오면 '수동 맞춤설정'을 선택하고 사용자에게 request_human(kind='manual_step')으로 항목 선택을 맡긴다.
+    success: {text_gone: "개인정보 보호 및 약관", timeout_ms: 30000}
+    max_actions: 12
+  # ------------------------------------------------------------- B: 2SV (TOTP)
+  - id: open_security
+    type: call
+    skill: google.open_security_page
+  - id: open_authenticator
+    type: agent_step
+    description: 2단계 인증을 켜기 전에 인증자 앱부터 등록하는 화면으로 이동
+    goal: >-
+      보안 탭에서 '2단계 인증' 또는 '인증자'(Authenticator) 항목을 찾아 '인증자 설정'(Set up authenticator) 화면까지 간다.
+      비밀번호 재확인을 요구하면 type_secret(ref='GOOGLE_{{inputs.alias}}_PASSWORD').
+      '전화번호 추가'나 '음성 또는 문자 메시지'는 절대 누르지 않는다.
+    success: {text_any: ["QR", "스캔할 수 없나요", "Can't scan it", "설정 키", "인증자 앱 설정", "Set up authenticator app"], timeout_ms: 20000}
+    max_actions: 15
+  - id: register_totp
+    type: human
+    kind: manual_step
+    instructions: >-
+      OTP 앱에서 '추가'를 누르고 화면의 QR 코드를 스캔하세요. 같은 폰의 OTP 앱이라면 '스캔할 수 없나요?'를 눌러 나오는 설정 키를 입력하세요.
+      등록이 끝나면 폰에서 '다음'을 누르고, 6자리 코드 입력 화면이 나오면 [계속]을 눌러 주세요.
+  - id: verify_totp
+    type: human
+    kind: otp_entry
+    instructions: OTP 앱의 6자리 코드를 폰 화면에 직접 입력하고 '확인'을 누른 뒤 [계속]을 눌러 주세요. (AI는 코드를 보지도 입력하지도 않습니다)
+  - id: enable_2sv
+    type: agent_step
+    description: 2단계 인증 사용 설정 (강화 승인 필요)
+    goal: >-
+      2단계 인증 페이지에서 '2단계 인증 사용 설정' 또는 'Turn on 2-Step Verification'을 누른다(사용자 승인 창이 뜬다).
+      전화번호를 백업으로 추가하라는 권유가 나오면 '건너뛰기' 또는 '나중에'를 누른다.
+    success: {text_any: ["2단계 인증 사용 중", "2-Step Verification is on", "사용 중", "On"], timeout_ms: 20000}
+    max_actions: 10
+  # ----------------------------------------------------------- C: backup codes
+  - id: open_backup_codes
+    type: agent_step
+    description: 백업 코드 생성 화면 열기
+    goal: 2단계 인증 페이지의 '백업 코드' 항목에서 '백업 코드 받기'(Get backup codes)를 눌러 코드 10개가 보이게 한다.
+    success: {text_any: ["백업 코드", "Backup codes"], timeout_ms: 20000}
+    max_actions: 10
+  - id: capture_codes
+    type: capture
+    capture: backup_codes
+    account_ref: "GOOGLE_{{inputs.alias}}"
+  - id: back_to_2sv
+    action: system_action
+    args: {action: back, reason: 2단계 인증 페이지로}
+    optional: true
+  # --------------------------------------------------------------- D: verify
+  - id: verify_methods
+    type: capture
+    capture: 2sv_methods
+report: [backup_codes, two_step]

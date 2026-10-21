@@ -1,0 +1,7 @@
+# 민감 앱(PRD 13.2): 이 앱이 포그라운드이면 AI의 탭·입력마다 승인 창이 뜬다.
+# 패키지명은 설치된 앱에서 확인해 추가한다: python -m phonepilot doctor / adb shell pm list packages -3
+packages:
+  - com.android.vending
+  - viva.republica.toss
+  - com.kakaobank.channel
+label_patterns: [은행, 뱅크, 뱅킹, 증권, 업비트, 빗썸, 코인원, 코빗, 페이, 카드, bank, securities, upbit, bithumb, pay]

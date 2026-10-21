@@ -1,0 +1,67 @@
+name: youtube.create_channel
+version: 1.0.0
+description: 워크플로 B — 기획서(이름·핸들 후보)대로 YouTube 앱에서 채널을 만들고 프로필 사진·배너·설명을 적용한다 (PRD 15장)
+tags: [youtube, workflow-b]
+inputs:
+  channel_name: {type: string, required: true}
+  handle: {type: string, required: true, description: 첫 번째 핸들 후보}
+  handle_alt: {type: string, default: "", description: 두 번째 후보}
+  description: {type: string, default: ""}
+  profile_image: {type: string, default: "", description: 허용 폴더 안의 800x800 이미지 경로}
+  banner_image: {type: string, default: "", description: 허용 폴더 안의 2560x1440 이미지 경로}
+requires:
+  packages: [com.google.android.youtube]
+steps:
+  - id: open_youtube
+    action: launch_app
+    args: {package: com.google.android.youtube, reason: YouTube 열기}
+    expect: {package: com.google.android.youtube, timeout_ms: 10000}
+  - id: popups
+    type: call
+    skill: android.dismiss_common_popups
+  - id: open_me
+    type: agent_step
+    description: 하단 '나'(프로필) 탭 → '채널 만들기'
+    goal: 하단 탭의 '나' 또는 프로필 아이콘을 누르고 '채널 만들기'(Create channel)를 누른다. 이미 채널이 있으면 request_human(kind='question')으로 알린다.
+    success: {text_any: ["채널 만들기", "Create channel", "핸들", "Handle"], timeout_ms: 15000}
+    max_actions: 8
+  - id: fill_name
+    type: agent_step
+    description: 이름·핸들 입력
+    goal: >-
+      이름 입력란에 type_text(text='{{inputs.channel_name}}', clear=true), 핸들 입력란에 type_text(text='{{inputs.handle}}', clear=true).
+      핸들 사용 불가 문구가 나오면 '{{inputs.handle_alt}}'로 바꾼다. 아직 '채널 만들기' 확정 버튼은 누르지 않는다.
+    success: {text_any: ["{{inputs.channel_name}}"], timeout_ms: 10000}
+    max_actions: 8
+  - id: confirm_create
+    type: approval
+    title: 유튜브 채널 생성
+    summary: "이름 '{{inputs.channel_name}}', 핸들 '@{{inputs.handle}}'(또는 대안 '@{{inputs.handle_alt}}')로 채널을 만듭니다."
+    risk: medium
+  - id: create
+    type: agent_step
+    description: 채널 만들기 확정
+    goal: >-
+      '채널 만들기'(Create channel) 확정 버튼을 누르고 채널 페이지가 열릴 때까지 기다린다.
+    success: {text_any: ["@{{inputs.handle}}", "채널 맞춤설정", "Customize channel", "채널 관리", "Manage videos"], timeout_ms: 30000}
+    max_actions: 6
+  - id: push_profile
+    action: push_file
+    optional: true
+    args: {local_path: "{{inputs.profile_image}}", reason: 프로필 사진 전송}
+  - id: push_banner
+    action: push_file
+    optional: true
+    args: {local_path: "{{inputs.banner_image}}", reason: 배너 전송}
+  - id: set_branding
+    type: agent_step
+    description: 채널 수정에서 프로필 사진·배너·설명 적용
+    goal: >-
+      채널 페이지의 연필(채널 수정) 아이콘에서 프로필 사진과 배너를 Download/phonepilot_tmp 폴더의 pp_ 파일로 바꾸고(파일이 없으면 건너뜀),
+      설명에 type_text(text='{{inputs.description}}', clear=true)을 입력한 뒤 저장한다. 공개 정보 저장 버튼에서는 승인 창이 뜰 수 있다.
+    success: {text_any: ["{{inputs.channel_name}}"], timeout_ms: 20000}
+    max_actions: 25
+  - id: verify
+    type: assert
+    condition: {text_any: ["{{inputs.channel_name}}"], timeout_ms: 10000}
+    message: 채널 이름이 화면에 보이지 않습니다

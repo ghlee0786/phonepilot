@@ -1,0 +1,14 @@
+name: android.go_home_clean
+version: 1.0.0
+description: 패널을 접고 홈 화면으로 이동한다
+tags: [android, utility]
+steps:
+  - id: collapse
+    action: system_action
+    args: {action: collapse_panels, reason: 패널 접기}
+    optional: true
+  - id: home
+    action: system_action
+    args: {action: home, reason: 홈으로}
+    expect:
+      timeout_ms: 3000

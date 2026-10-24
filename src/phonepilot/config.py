@@ -70,6 +70,9 @@ class LimitsConfig(BaseModel):
 
 class SafetyConfig(BaseModel):
     approval_timeout_s: float = 120
+    # auto: the system runtime-permission dialog's "allow" is approved without a dialog. Payments, orders,
+    # security settings, engagement and APK installs always ask, whatever the mode (CLAUDE.md rule 4).
+    approval_mode: Literal["manual", "auto"] = "manual"
     sensitive_apps_file: str = "policy/sensitive_apps.yaml"
     keywords_file: str = "policy/keywords.yaml"
     limits: LimitsConfig = Field(default_factory=LimitsConfig)

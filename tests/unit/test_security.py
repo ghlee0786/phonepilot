@@ -171,3 +171,14 @@ def test_backup_code_extraction_and_vault(tmp_path):
     with pytest.raises(PhonePilotError):
         v.save("MAIN", "x", codes[:9])
     assert RecoveryVault(tmp_path / "OneDrive" / "v").check_location()
+
+
+def test_permission_only_needs_permission_as_the_single_signal():
+    pe = PolicyEngine()
+    pkg = "com.google.android.permissioncontroller"
+    assert pe.classify(ctx(target_label="허용", package=pkg)).permission_only
+    # '허용' + an outbound word on the same button: still a normal approval, never auto
+    assert not pe.classify(ctx(target_label="허용 후 보내기", package=pkg)).permission_only
+    assert not pe.classify(ctx(target_label="허용")).permission_only  # not the system permission dialog
+    pe.add_sensitive_package(pkg)
+    assert not pe.classify(ctx(target_label="허용", package=pkg)).permission_only

@@ -28,6 +28,9 @@ agent:
   send_images_in_sensitive_apps: false
 safety:
   approval_timeout_s: 120
+  # manual | auto. auto: 앱 권한 요청 창의 '허용'만 승인 창 없이 실행(툴바 [승인: 수동/자동]으로도 전환).
+  # 결제·주문·보안 설정·좋아요/구독/댓글·APK 설치는 어느 모드에서든 승인 창을 띄운다.
+  approval_mode: manual
   sensitive_apps_file: policy/sensitive_apps.yaml
   keywords_file: policy/keywords.yaml
   limits:

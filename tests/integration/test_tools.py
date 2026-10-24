@@ -387,3 +387,49 @@ async def test_timeline_has_tap_point(stack):
     await stack.tools.tap(selector={"text": "설정"})
     ev = [e for e in stack.timeline.recent() if e["tool"] == "tap"][-1]
     assert 0 <= ev["detail"]["x_norm"] <= 1000 and 0 <= ev["detail"]["y_norm"] <= 1000
+
+
+def _add_permission_screens(stack):
+    from phonepilot.testing.fake_device import FakeScreen, button, label
+
+    pkg = "com.google.android.permissioncontroller"
+    for s in (
+        FakeScreen("perm", pkg, ".GrantPermissionsActivity", [
+            label("카메라 앱에서 사진을 촬영하도록 허용하시겠습니까?", 120),
+            button("앱 사용 중에만 허용", 400, goto="perm_done"),
+            button("허용 안함", 560),
+        ]),
+        FakeScreen("perm_done", "com.android.camera", ".Camera", [label("카메라", 120)]),
+    ):
+        stack.device.screens[s.name] = s
+
+
+async def test_permission_allow_asks_in_manual_mode(stack, approver):
+    _add_permission_screens(stack)
+    await goto(stack, "perm")
+    with pytest.raises(PhonePilotError) as e:
+        await stack.tools.tap(selector={"text": "앱 사용 중에만 허용"})
+    assert e.value.code == "APPROVAL_DENIED"
+    assert approver.requests[-1].decision.category == "permission"
+    assert stack.device.current == "perm"
+
+
+async def test_permission_allow_is_auto_approved_in_auto_mode(stack, approver):
+    _add_permission_screens(stack)
+    stack.tools.config.auto_approve_permissions = True
+    await goto(stack, "perm")
+    res = await stack.tools.tap(selector={"text": "앱 사용 중에만 허용"}, reason="카메라 권한")
+    assert approver.requests == []
+    assert res["approval"] == {"level": "CONFIRM", "approved": True, "auto": True}
+    assert stack.device.current == "perm_done"
+    assert stack.timeline.events[-1].result == "auto_approved"
+
+
+async def test_auto_mode_still_asks_for_payment(stack, approver):
+    stack.tools.config.auto_approve_permissions = True
+    await goto(stack, "store")
+    with pytest.raises(PhonePilotError) as e:
+        await stack.tools.tap(selector={"text": "구매"})
+    assert e.value.code == "APPROVAL_DENIED"
+    assert approver.requests[-1].decision.category == "payment"
+    assert stack.device.current == "store"

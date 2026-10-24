@@ -159,6 +159,8 @@ selector 키: `text`, `text_any`(목록 중 하나), `text_contains`, `text_rege
 
 - 키워드: `policy/keywords.yaml`, 민감 앱: `policy/sensitive_apps.yaml`(코드 기본값과 합쳐짐).
 - 승인 창은 PhonePilot 창에 뜨고(모달 아님, 미리보기 이미지 포함) `safety.approval_timeout_s`=120초 안에 응답이 없으면 `APPROVAL_TIMEOUT`.
+- 승인 방식(`safety.approval_mode`, 툴바 [승인: 수동/자동]): **자동**이면 시스템 권한 요청 창(`permissioncontroller`)의 "허용"이 다른 신호 없이 단독일 때만
+  승인 창 없이 실행되고 결과에 `approval.auto=true`, 타임라인에 `auto_approved`가 남는다. 그 밖의 CONFIRM·CONFIRM_HIGH는 모드와 무관하게 승인 창.
 - 승인은 **그 화면·그 대상에 묶인다**: 승인 후 대상이 사라지거나 화면이 6% 넘게 바뀌면 `APPROVAL_INVALIDATED` → `observe` 후 다시 요청.
 - AI가 스스로 확인을 받고 싶을 때: `request_approval(title, summary, details, risk)`.
 - 한도(`safety.limits`): 인앱 결제 일일 0원(기본 금지), 주문 1회 10만 원/일 30만 원/일 10건. 초과 시 `LIMIT_EXCEEDED`.

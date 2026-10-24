@@ -67,6 +67,7 @@ class ToolConfig:
     device_tmp_dir: str = "/sdcard/Download/phonepilot_tmp"
     allow_headless_actions: bool = True
     project_root: Path | None = None
+    auto_approve_permissions: bool = False  # safety.approval_mode == "auto"
 
 
 @dataclass
@@ -204,6 +205,9 @@ class ToolService(IntegrationMixin):
             raise PhonePilotError("POLICY_BLOCKED", "; ".join(decision.reasons), category=decision.category)
         if decision.category == "engagement":
             self.counters.use_engagement(self.config.engagement_daily)
+        if decision.permission_only and self.config.auto_approve_permissions:
+            decision.auto_approved = True  # auto mode: only the system permission dialog's "allow", nothing else
+            return decision
         if decision.needs_approval:
             label = ctx.target_label or tool
             summary = f"{obs.app_label}에서 '{label}' {tool}"
@@ -269,7 +273,7 @@ class ToolService(IntegrationMixin):
             extra = await run(target) or {}
             result: dict[str, Any] = {"ok": True, **extra}
             if decision.needs_approval:
-                result["approval"] = {"level": level, "approved": True}
+                result["approval"] = {"level": level, "approved": True, "auto": decision.auto_approved}
             if settle and args.get("wait", True):
                 stable = await self.observer.wait_stable(self.config.settle_timeout_s, check_progress=False)
                 if not stable:
@@ -293,7 +297,8 @@ class ToolService(IntegrationMixin):
             if target is not None:
                 dw, dh = self.device.display_size
                 point = {"x_norm": round(target.x / max(dw, 1) * 1000), "y_norm": round(target.y / max(dh, 1) * 1000)}
-            self.timeline.add(TimelineEvent(actor, tool, target_label, level or "ALLOW", "ok", reason, result["elapsed_ms"], point))
+            outcome = "auto_approved" if decision.auto_approved else "ok"
+            self.timeline.add(TimelineEvent(actor, tool, target_label, level or "ALLOW", outcome, reason, result["elapsed_ms"], point))
             return result
         except PhonePilotError as e:
             self.timeline.add(TimelineEvent(actor, tool, target_label, level, e.code, reason, int((time.monotonic() - t0) * 1000)))

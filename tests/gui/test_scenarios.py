@@ -427,3 +427,20 @@ def test_s17_badge_never_says_connected_while_the_stream_is_broken(qtbot, window
     assert window.conn_badge.text() == "⚠ 복구 중" and window.mirror.offline_notice
     window._ev_health({"state": "STREAMING", "recovering": False, "codes": ["VIDEO_STALLED"], "problems": []})  # noqa: SLF001
     assert "연결됨" in window.conn_badge.text() and not window.mirror.offline_notice  # a quiet screen is not an alarm
+
+
+def test_s13_approval_mode_toggle_is_saved_and_reaches_the_tools(qtbot, window: MainWindow, runtime: CoreRuntime, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))  # set_approval_mode saves config.yaml
+    act = window.approval_mode_action
+    assert not act.isChecked() and act.text() == "승인: 수동"
+    try:
+        act.trigger()
+        assert act.isChecked() and act.text() == "승인: 자동"
+        assert runtime.config.safety.approval_mode == "auto"
+        assert runtime.stack.tools.config.auto_approve_permissions is True
+        assert "approval_mode: auto" in (tmp_path / "roaming" / "PhonePilot" / "config.yaml").read_text(encoding="utf-8")
+        act.trigger()
+        assert not act.isChecked() and act.text() == "승인: 수동"
+        assert runtime.stack.tools.config.auto_approve_permissions is False
+    finally:
+        runtime.set_approval_mode("manual")

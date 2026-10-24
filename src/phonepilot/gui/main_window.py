@@ -394,6 +394,11 @@ class MainWindow(QMainWindow):
         self.allow_action.setVisible(False)
         self.stop_action = a("정지", self.trigger_kill, [], "킬 스위치: 모든 AI 행동 즉시 정지 (Pause, Ctrl+Alt+End)")
         self.stop_action.setIcon(icon("stop", "#ffffff"))
+        self.approval_mode_action = a(
+            "승인: 수동", lambda: self.set_approval_mode(self.approval_mode_action.isChecked()), [],
+            checkable=True, icon_name="shield_check",
+        )
+        self._show_approval_mode(self.runtime.config.safety.approval_mode == "auto")
         self._pause_icon_paused: bool | None = None
         self._device_actions = [
             self.back_action, self.home_action, self.recents_action, self.power_action, self.vol_up_action, self.vol_down_action,
@@ -419,10 +424,16 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)  # AI controls sit at the right edge, apart from the device buttons
+        tb.addAction(self.approval_mode_action)
         tb.addAction(self.pause_action)
         tb.addAction(self.allow_action)
         tb.addAction(self.stop_action)
-        for act, name in ((self.pause_action, "pauseButton"), (self.allow_action, "allowButton"), (self.stop_action, "stopButton")):
+        for act, name in (
+            (self.approval_mode_action, "approvalModeButton"),
+            (self.pause_action, "pauseButton"),
+            (self.allow_action, "allowButton"),
+            (self.stop_action, "stopButton"),
+        ):
             btn = tb.widgetForAction(act)
             if isinstance(btn, QToolButton):
                 btn.setObjectName(name)
@@ -481,6 +492,29 @@ class MainWindow(QMainWindow):
         if self.runtime.stack is not None:
             core_call(self.runtime, self.runtime.stack.arbiter.allow_ai)
             self.timeline_panel.add_system("AI 허용(킬 스위치 해제)")
+
+    def set_approval_mode(self, auto: bool) -> None:
+        try:
+            self.runtime.set_approval_mode("auto" if auto else "manual")
+        except PhonePilotError as e:
+            QMessageBox.warning(self, "승인 방식", e.message)
+            auto = not auto
+        self._show_approval_mode(auto)
+        self.statusBar().showMessage(
+            "자동 승인: 앱 권한 요청의 '허용'은 승인 창 없이 실행합니다 (결제·주문·보안·좋아요·APK 설치는 계속 승인 필요)"
+            if auto else "수동 승인: 앱 권한 요청의 '허용'도 승인 창을 띄웁니다",
+            8000,
+        )
+
+    def _show_approval_mode(self, auto: bool) -> None:
+        act = self.approval_mode_action
+        act.setChecked(auto)
+        act.setText("승인: 자동" if auto else "승인: 수동")
+        act.setToolTip(
+            "자동: AI가 누르는 앱 권한 요청의 '허용'을 승인 창 없이 실행합니다.\n"
+            "결제·주문·보안 설정·좋아요/구독/댓글·APK 설치는 어느 모드에서든 승인 창을 띄웁니다.\n"
+            "누르면 수동/자동이 바뀌고 설정에 저장됩니다."
+        )
 
     def toggle_ai_pause(self) -> None:
         stack = self.runtime.stack

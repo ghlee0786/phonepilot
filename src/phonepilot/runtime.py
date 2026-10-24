@@ -400,6 +400,7 @@ class CoreRuntime:
             engagement_daily=cfg.safety.limits.engagement_daily,
             in_app_purchase_daily_krw=cfg.safety.limits.in_app_purchase_daily_krw,
             allowed_push_dirs=[expand(d) for d in cfg.allowed_push_dirs],
+            auto_approve_permissions=cfg.safety.approval_mode == "auto",
         )
         stack = build_stack(
             device,
@@ -572,6 +573,19 @@ class CoreRuntime:
         self.config.transfer.drop_dir = d
         save_config(self.config)
         return d
+
+    def set_approval_mode(self, mode: str) -> str:
+        """Manual / auto approval. Auto only skips the system permission dialog's "allow" (PolicyDecision.permission_only)."""
+        from phonepilot.config import save_config
+
+        if mode not in ("manual", "auto"):
+            raise PhonePilotError("POLICY_BLOCKED", f"unknown approval mode {mode!r}")
+        self.config.safety.approval_mode = mode  # type: ignore[assignment]
+        save_config(self.config)
+        if self.stack is not None:
+            self.stack.tools.config.auto_approve_permissions = mode == "auto"
+        self.emit("approval_mode", {"mode": mode})
+        return mode
 
     @staticmethod
     def _drop_items(paths: list[str]) -> list[tuple[Path, str]]:

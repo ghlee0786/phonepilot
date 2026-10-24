@@ -46,7 +46,7 @@ LEVEL_COLORS = {
     "": "",
 }
 ACTOR_ICONS = {"human": ("user", "#86efac"), "system": ("system", COLORS["text_muted"]), "workflow": ("workflow", "#c084fc"), "ai": ("bot", "#93c5fd")}
-OK_RESULTS = {"ok", "approved", "continued", "waiting"}
+OK_RESULTS = {"ok", "approved", "auto_approved", "continued", "waiting"}
 MAX_TIMELINE_ITEMS = 2000
 
 STATE_LABELS = {

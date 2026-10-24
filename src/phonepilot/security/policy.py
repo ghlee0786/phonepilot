@@ -84,10 +84,17 @@ class PolicyDecision:
     category: str = "general"
     reasons: list[str] = field(default_factory=list)
     amounts: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)  # every signal that fired, not only the strictest one
+    auto_approved: bool = False
 
     @property
     def needs_approval(self) -> bool:
         return self.level in (Level.CONFIRM, Level.CONFIRM_HIGH)
+
+    @property
+    def permission_only(self) -> bool:
+        """A runtime-permission "allow" in the system dialog and nothing else (auto-approval mode)."""
+        return self.level is Level.CONFIRM and set(self.categories) == {"permission"}
 
     def to_dict(self) -> dict[str, Any]:
         return {"level": self.level.name, "category": self.category, "reasons": self.reasons, "amounts": self.amounts}
@@ -152,6 +159,7 @@ class PolicyEngine:
                 d.level = level
                 d.category = category
             d.reasons.append(reason)
+            d.categories.append(category)
 
         screen = " \n ".join(ctx.screen_texts)
         screen_norm = _norm(screen)

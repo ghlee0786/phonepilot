@@ -241,6 +241,10 @@ class CoreRuntime:
         return {"ok": res.ok, "message": res.message, "address": res.address}
 
     async def wireless_pair_code(self, host_port: str, code: str) -> dict[str, Any]:
+        from phonepilot.core.wireless import validate_code, validate_host_port
+
+        # reject a bad or public address before starting adb (FR-DEV-011)
+        host_port, code = validate_host_port(host_port), validate_code(code)
         w = await asyncio.to_thread(self._wireless_adb)
         self._pairing = w
         try:

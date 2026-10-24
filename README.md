@@ -56,7 +56,7 @@ AI가 결제, 업로드, 좋아요·구독, 보안 설정처럼 되돌리기 어
 - AI는 도구 57개로 화면 읽기(`observe`), 누르기(`tap`), 입력(`type_text`), 스크롤, 앱 실행, 워크플로 실행을 합니다.
 - 비밀번호는 `type_secret(ref="GOOGLE_MAIN_PASSWORD")`처럼 **이름으로만** 입력을 요청합니다. 값은 PhonePilot이 직접 칩니다.
 
-> 상태: v0.1.3. 자동 테스트 290개 + 실기기 테스트 6개 통과. 실기기(Galaxy S21+ Android 15, Galaxy Note20 Android 13)에서 미러링, MCP 화면 읽기, 제스처 보정, 작업 녹화→재생을 확인했습니다.
+> 상태: v0.1.4. 자동 테스트 291개 + 실기기 테스트 6개 통과. 실기기(Galaxy S21+ Android 15, Galaxy Note20 Android 13)에서 미러링, MCP 화면 읽기, 제스처 보정, 작업 녹화→재생을 확인했습니다.
 
 ---
 
@@ -400,7 +400,7 @@ docs/                PRD, 개발 문서, MCP 가이드, 도구 레퍼런스, 릴
 ## 테스트
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                         # 단위·통합·GUI·시나리오 290개 (폰 불필요, 약 1분 30초)
+.venv\Scripts\python.exe -m pytest                         # 단위·통합·GUI·시나리오 291개 (폰 불필요, 약 1분 30초)
 .venv\Scripts\python.exe -m pytest -m device tests\device  # 실기기 테스트 (폰 연결 + 잠금 해제 상태)
 ```
 
@@ -426,7 +426,7 @@ docs/                PRD, 개발 문서, MCP 가이드, 도구 레퍼런스, 릴
 
 **완료**
 - PRD 기준 기능 전체 구현: 미러링(USB·무선), 입력·제스처 합성과 보정, 관찰, 정책·승인·한도, 비밀값 격리, 복구 코드 보관함, 스킬·워크플로 엔진, MCP 서버, 내장 에이전트, 세션 정리
-- 자동 테스트 290개 통과(GitHub Actions CI에서 매 push마다 실행), 실기기 테스트 6개 통과
+- 자동 테스트 291개 통과(GitHub Actions CI에서 매 push마다 실행), 실기기 테스트 6개 통과
 - 실기기(Galaxy Note20, Android 13)에서 제스처 보정 측정값, 프로필 스크롤, 작업 녹화→재생 검증
 - 설치 프로그램(Inno Setup), GitHub 릴리스 업데이트 확인, 문제 신고
 - 작업 녹화→스킬과 재생, 사람·AI 제스처 유사도 측정

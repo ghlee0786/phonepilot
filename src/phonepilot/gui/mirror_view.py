@@ -7,6 +7,7 @@ newest frame only. All coordinates handed to the arbiter are display pixels.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -37,6 +38,8 @@ from phonepilot.core.coords import FitRect, fit_rect
 from phonepilot.core.framebus import Frame
 from phonepilot.core.scrcpy import protocol as p
 from phonepilot.gui.bridge import InputPump
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from phonepilot.core.device import DeviceBackend
@@ -116,6 +119,7 @@ class MirrorView(QWidget):
         self._signal_pending = False
         self.image: QImage | None = None
         self.frame_seq = 0
+        self._seq_at_last_check = 0  # resync() watchdog
         self._blur_cache: tuple[int, QImage] | None = None
         self.frameReady.connect(self._consume_frame)
 
@@ -195,9 +199,28 @@ class MirrorView(QWidget):
 
     def tick_fps(self) -> int:
         """Called by the status timer; decays the FPS readout when no frames arrive (static screen)."""
+        self.resync()
         if time.monotonic() - self._fps_t0 > 2.0:
             self.fps = 0
         return self.fps
+
+    def resync(self) -> bool:
+        """Watchdog: if the FrameBus holds a newer frame than the one drawn (a lost frameReady signal leaves the
+        view frozen while the stream is fine), take it now. Returns True when it had to step in."""
+        dev = self._device
+        latest = dev.framebus.latest() if dev is not None else None
+        drawn_before, self._seq_at_last_check = self._seq_at_last_check, self.frame_seq
+        # only when nothing was drawn since the last check: one frame in flight during live video is normal
+        if latest is None or latest.seq == self.frame_seq or self.frame_seq != drawn_before:
+            return False
+        with self._lock:
+            stuck = self._signal_pending
+            self._pending = latest
+            self._signal_pending = False
+        log.warning("mirror was behind the stream (seq %s < %s, signal stuck=%s); redrawing", self.frame_seq, latest.seq, stuck)
+        self._consume_frame()
+        self._seq_at_last_check = self.frame_seq
+        return True
 
     @property
     def frame_size(self) -> tuple[int, int]:

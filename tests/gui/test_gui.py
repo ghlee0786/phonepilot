@@ -544,3 +544,18 @@ def test_help_is_behind_question_marks(qtbot, window: MainWindow) -> None:  # no
     assert "보정 시작" in b.balloon.label.text()
     b.balloon.close()
     qtbot.waitUntil(lambda: b.balloon is None, timeout=2000)
+
+
+def test_mirror_recovers_from_a_lost_frame_signal(qtbot, view: MirrorView, device: FakeDevice) -> None:  # noqa: ANN001
+    """The stream keeps arriving but a frameReady delivery got lost: the status-timer watchdog redraws within a tick."""
+    qtbot.waitUntil(lambda: view.frame_seq == device.framebus.latest().seq, timeout=2000)
+    with view._lock:  # noqa: SLF001  simulate a delivery that never reached the GUI thread
+        view._signal_pending = True  # noqa: SLF001
+    device.goto("settings")  # new frame on the bus; _on_frame sees a pending signal and does not emit again
+    qtbot.wait(200)
+    assert view.frame_seq < device.framebus.latest().seq, "precondition: the view is frozen"
+    view.tick_fps()  # first tick: notes that nothing was drawn
+    view.tick_fps()  # second tick: still behind -> resync
+    assert view.frame_seq == device.framebus.latest().seq
+    device.goto("home")
+    qtbot.waitUntil(lambda: view.frame_seq == device.framebus.latest().seq, timeout=2000)  # normal delivery works again

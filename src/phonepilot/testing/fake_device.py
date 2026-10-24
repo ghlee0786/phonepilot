@@ -219,6 +219,8 @@ class FakeDevice(DeviceBackend):
                     self._tap(dx, dy)
             elif m["action"] == p.MotionAction.CANCEL:
                 self._down.pop(pid, None)
+        elif t == p.ControlType.BACK_OR_SCREEN_ON and m["action"] == p.KeyAction.DOWN and self.stack:
+            self.goto(self.stack.pop(), push=False)  # right click in the mirror
         elif t == p.ControlType.INJECT_TEXT:
             self._type(str(m["text"]))
         elif t == p.ControlType.INJECT_KEYCODE and m["action"] == p.KeyAction.DOWN:

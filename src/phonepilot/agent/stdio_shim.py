@@ -19,6 +19,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
 
+from phonepilot import __version__
 from phonepilot.paths import localdata_dir
 
 
@@ -107,7 +108,7 @@ async def amain(url: str | None = None) -> None:
             upstream.drop()
             return _not_running()
 
-    server = Server("phonepilot", version="0.1.0", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("phonepilot", version=__version__, on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     try:
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())

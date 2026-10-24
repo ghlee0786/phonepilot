@@ -26,9 +26,9 @@ Android 폰을 Windows PC에 미러링해 사람처럼 조작하고, AI가 MCP �
 ## 환경 (이 PC)
 
 - 시스템 Python은 3.12.0b4 **베타** — 쓰지 않는다. 항상 `.venv\Scripts\python.exe`(uv 관리 CPython 3.12.15).
-- git 저장소(`main` 브랜치, 원격 `origin` = GitHub `ghlee0786/phonepilot`, 비공개). 작업 폴더 `E:\workspace\python\mirroring`.
+- git 저장소(`main` 브랜치, 원격 `origin` = GitHub `ghlee0786/phonepilot`, **공개**). CI/CD는 `.github/workflows/`(push마다 테스트, `v*` 태그마다 인스톨러 빌드·릴리스). [docs/RELEASE.md](docs/RELEASE.md).
 - 기기용 바이너리: `vendor/platform-tools/adb.exe`, `vendor/scrcpy-server`(**v4.1**, SHA-256 고정) — `scripts/fetch_vendor.py`가 받는다.
-- 실기기: Galaxy S21+ `SM-G996N`, Android 15, 1080×2400 @420dpi, 시리얼 끝자리 GTNJ. USB 디버깅 허용 완료. 폰에 따로 설치하는 앱은 없다(scrcpy-server를 매 연결마다 push해서 실행).
+- 실기기: Galaxy S21+ `SM-G996N`(Android 15), Galaxy Note20 `SM-N981N`(Android 13), 둘 다 1080×2400. USB 디버깅 허용 완료. 폰에 따로 설치하는 앱은 없다(scrcpy-server를 매 연결마다 push해서 실행).
 - Git Bash에서 기기 경로를 넘기는 adb 명령은 `MSYS_NO_PATHCONV=1`을 붙인다.
 
 ## 자주 쓰는 명령
@@ -37,7 +37,7 @@ Android 폰을 Windows PC에 미러링해 사람처럼 조작하고, AI가 MCP �
 .venv\Scripts\python.exe -m phonepilot              # GUI + 첫 USB 기기 연결 + MCP 서버(127.0.0.1:47800)
 .venv\Scripts\python.exe -m phonepilot gui --demo   # 폰 없이 FakeDevice
 .venv\Scripts\python.exe -m phonepilot doctor       # vendor/.env/스킬/adb 점검
-.venv\Scripts\python.exe -m pytest                  # 단위·통합·GUI 249개 (기기 불필요, ~40초)
+.venv\Scripts\python.exe -m pytest                  # 단위·통합·GUI·시나리오 285개 (기기 불필요, ~2분)
 .venv\Scripts\python.exe -m pytest -m device tests\device   # 실기기 테스트 (폰 잠금 해제 상태)
 .venv\Scripts\python.exe scripts\gen_tool_reference.py      # 도구 변경 후 docs/MCP_TOOLS.md 재생성
 .venv\Scripts\python.exe -m phonepilot skill validate skills\youtube\create_channel.yaml
@@ -51,12 +51,14 @@ Android 폰을 Windows PC에 미러링해 사람처럼 조작하고, AI가 MCP �
 3. 도구 이름은 Claude Code에서 `mcp__phonepilot__observe` 형태다. 기본 루프: `session_info` → `observe` → 행동 하나(`tap(element=N, obs_id=...)`) → 결과의 새 관찰 확인 → 반복.
 4. 작업별 절차는 `.claude/skills/phonepilot-*` 스킬과 [docs/MCP_GUIDE.md](docs/MCP_GUIDE.md) 8장.
 
-## 현재 상태 (2026-10-12)
+## 현재 상태 (2026-10-24, v0.1.1)
 
 - PRD 기준 기능 구현 완료: 미러링(USB·무선 QR/코드 페어링), 전체화면(비율 유지), 입력·제스처 합성, 제스처 프로파일(사용자 터치로 보정),
   관찰(UI 트리+SoM), 정책·승인·한도, 비밀값 격리, 복구 코드 보관함, 스킬·워크플로 엔진, MCP 서버(도구 48개 + 연동 9개), 내장 Claude 에이전트, 세션 정리.
-- 자동 테스트 249개 통과. 실기기 USB 미러링 검증 완료(864×1920 프레임, HW 디코드, 첫 프레임 ~1초), MCP로 실기기 `observe` 동작 확인.
-- 남은 일: 폰 잠금 해제 상태에서 `pytest -m device tests\device`, 실기기에서 무해한 조작(홈→설정→스크롤→뒤로) 시연, 무선 페어링 실기기 검증,
+- 자동 테스트 285개 + 실기기 테스트 5개 통과. 설치 프로그램, 업데이트 확인, 작업 녹화→재생, 제스처 유사도 측정 추가.
+- 개인 데이터(제스처 프로필, 녹화)는 `%LOCALAPPDATA%\PhonePilot\`에만 둔다. 저장소에 넣지 않는다(`.gitignore`와 CI가 막음).
+- 실기기 USB 미러링 검증 완료(864×1920 프레임, HW 디코드, 첫 프레임 ~1초), MCP로 실기기 `observe` 동작 확인.
+- 남은 일: 무선 페어링 실기기 검증,
   YouTube/Upbit/KIS 연동은 키를 넣고 켜야 실제 호출(기본 꺼짐).
 
 ## 코드 수정 시

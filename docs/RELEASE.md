@@ -1,30 +1,46 @@
 # 릴리스와 업데이트
 
 PhonePilot은 설치 파일(Inno Setup)로 배포하고, 앱이 GitHub 릴리스를 확인해 스스로 업데이트합니다.
-코드 저장소는 비공개이므로, 설치 파일은 **공개 릴리스 전용 저장소**에 올립니다.
+코드 저장소(`ghlee0786/phonepilot`)가 공개 저장소이므로 릴리스도 같은 저장소에 올립니다. 빌드와 업로드는 GitHub Actions가 합니다.
 
 | 항목 | 값 |
 | --- | --- |
-| 릴리스 저장소 | `config.yaml`의 `update.repo` (기본 `ghlee0786/phonepilot-releases`) |
-| 태그 | `v<버전>` (예: `v0.2.0`) |
+| 릴리스 저장소 | `config.yaml`의 `update.repo` (기본 `ghlee0786/phonepilot`) |
+| 태그 | `v<버전>` (예: `v0.2.0`) — `src/phonepilot/__init__.py`의 `__version__`과 같아야 합니다 |
 | 릴리스 첨부 파일 | `PhonePilot-<버전>-setup.exe`, `PhonePilot-<버전>-setup.exe.sha256` |
-| 이슈(문제 신고) | 같은 릴리스 저장소의 Issues |
+| 이슈(문제 신고) | 같은 저장소의 Issues |
 
-릴리스 저장소 이름을 바꾸면 세 곳을 함께 바꿉니다: `src/phonepilot/config.py`(`UpdateConfig.repo`),
+저장소 이름을 바꾸면 세 곳을 함께 바꿉니다: `src/phonepilot/config.py`(`UpdateConfig.repo`),
 `installer/phonepilot.iss`(`ReleasesUrl`), 이 문서.
 
+## CI/CD (GitHub Actions)
+
+| 워크플로 | 언제 | 하는 일 |
+| --- | --- | --- |
+| [`ci.yml`](../.github/workflows/ci.yml) | `main` push, PR, 수동 | Windows + Python 3.12에서 단위·통합·GUI·시나리오 테스트(화면 없는 offscreen 모드), 스킬 YAML 검증, `docs/MCP_TOOLS.md` 최신 여부, 개인 데이터(`.env`, 제스처 프로필, 녹화 등)가 저장소에 들어오지 않았는지 검사 |
+| [`release.yml`](../.github/workflows/release.yml) | `v*` 태그 push, 수동(태그 지정) | 태그와 앱 버전 일치 확인 → 테스트 → vendor 받기 → PyInstaller → 설치 마법사 이미지 → Inno Setup → SHA-256 → GitHub 릴리스 생성·첨부(같은 태그가 있으면 파일만 교체) |
+
+실기기 테스트(`pytest -m device tests\device`)는 폰이 필요해서 CI에서 돌지 않습니다. 릴리스 전에 개발 PC에서 직접 돌립니다.
+토큰은 워크플로가 자동으로 받는 `GITHUB_TOKEN`만 씁니다. 따로 만들 비밀값은 없습니다.
+
 ## 처음 한 번
-1. GitHub에 **공개** 저장소를 만듭니다(예: `phonepilot-releases`). README 하나라도 커밋해 두어야 릴리스를 만들 수 있습니다.
-2. Issues를 켜 두고, 라벨 `bug`를 만들어 둡니다(문제 신고가 이 라벨로 열립니다).
-3. 세분화 토큰(fine-grained PAT)을 만듭니다: 대상 저장소는 릴리스 저장소 하나, 권한은 **Contents: Read and write**만.
+1. 저장소 Settings → Actions → General에서 Actions가 켜져 있는지 확인합니다.
+2. Issues를 켜 두고 라벨 `bug`를 만들어 둡니다(문제 신고가 이 라벨로 열립니다).
 
 ## 릴리스할 때
 ```powershell
 # 1) 버전 올리기: src/phonepilot/__init__.py 의 __version__, pyproject.toml 의 version
-# 2) 빌드: 실행 파일 → 설치 마법사 이미지 → 인스톨러 → SHA-256
+# 2) 실기기 테스트 (폰 연결, 잠금 해제)
+.venv\Scripts\python.exe -m pytest -m device tests\device
+# 3) 커밋 후 태그를 올리면 Actions가 빌드하고 릴리스를 만듭니다
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+로컬에서 직접 만들 때(오프라인 등):
+```powershell
 .venv\Scripts\python.exe -m uv pip install -e ".[dev,build]"   # 처음 한 번
 .venv\Scripts\python.exe scripts\build_release.py
-# 3) 올리기 (토큰은 환경 변수로만 전달하고 저장하지 않습니다)
 $env:GITHUB_TOKEN = "<토큰>"; .venv\Scripts\python.exe scripts\publish_release.py --notes notes.md
 Remove-Item Env:GITHUB_TOKEN
 ```

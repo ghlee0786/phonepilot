@@ -102,8 +102,8 @@ class IntegrationsConfig(BaseModel):
 
 
 class UpdateConfig(BaseModel):
-    # public releases-only repository: the code repo is private, so installs could not read its releases
-    repo: str = "ghlee0786/phonepilot-releases"
+    # the public code repository; CI publishes tagged releases there (.github/workflows/release.yml)
+    repo: str = "ghlee0786/phonepilot"
     check_on_start: bool = True
     check_interval_hours: float = 24
 

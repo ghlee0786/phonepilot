@@ -14,7 +14,7 @@ PRD 조항 번호(FR-xxx 기능 요구, SEC-xxx 보안, TC-xxx 테스트 케이�
 | 주요 의존성 | PySide6(GUI), av(PyAV/FFmpeg 디코드), adbutils, mcp>=2.3(MCP SDK 2.x), anthropic(1.x), uvicorn, pydantic, PyYAML, Pillow, numpy, qrcode, tzdata |
 | 기기 바이너리 | `scripts/fetch_vendor.py` → `vendor/platform-tools/adb.exe`, `vendor/scrcpy-server`(v4.1, SHA-256 `deacb991…0cae` 고정). git 제외 |
 | 실행 파일 | `.venv\Scripts\phonepilot.exe`(= `python -m phonepilot`), `.venv\Scripts\phonepilot-mcp.exe`(stdio 중계기) |
-| 사용자 파일 | `%APPDATA%\PhonePilot\`(.env, secrets.meta.yaml, config.yaml, skills\, approved_skills.json, gesture_profiles.yaml), `%LOCALAPPDATA%\PhonePilot\`(mcp.token, 일일 카운터, order_ledger.json — 합계·날짜만), `%TEMP%\PhonePilot\`(세션 임시, 종료 시 삭제). 무선 페어링 신뢰 정보는 adb 자체 키(`%USERPROFILE%\.android`)에 있다 |
+| 사용자 파일 | `%APPDATA%\PhonePilot\`(.env, secrets.meta.yaml, config.yaml, skills\, approved_skills.json), `%LOCALAPPDATA%\PhonePilot\`(gesture_profiles.yaml, recordings\, mcp.token, 일일 카운터, order_ledger.json — 합계·날짜만), `%TEMP%\PhonePilot\`(세션 임시, 종료 시 삭제). 무선 페어링 신뢰 정보는 adb 자체 키(`%USERPROFILE%\.android`)에 있다 |
 | 산출물 폴더 | `%USERPROFILE%\Documents\PhonePilot-Recovery`(백업 코드), `%USERPROFILE%\Documents\PhonePilot-Assets`(push 허용 폴더) |
 
 `pyproject.toml`: `pythonpath=["."]`, `asyncio_mode=auto`, 마커 `device`, 기본 `addopts = -m 'not device'`. 파일에 UTF-8 BOM을 넣지 말 것(파싱 실패 전력 있음).

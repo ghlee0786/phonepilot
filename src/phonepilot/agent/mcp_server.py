@@ -11,6 +11,7 @@ from typing import Any
 from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 
+from phonepilot import __version__
 from phonepilot.agent.prompts import OPERATOR_PROMPT, workflow_prompt
 from phonepilot.agent.tools import ToolService
 from phonepilot.errors import PhonePilotError
@@ -68,7 +69,7 @@ def to_error(service: ToolService, err: PhonePilotError) -> CallToolResult:
 
 
 def build_server(service: ToolService, end_session: Any = None) -> MCPServer:
-    mcp = MCPServer(name="phonepilot", title="PhonePilot", instructions=INSTRUCTIONS, version="0.1.0")
+    mcp = MCPServer(name="phonepilot", title="PhonePilot", instructions=INSTRUCTIONS, version=__version__)
 
     async def call(ctx: Context | None, method: str, **kwargs: Any) -> CallToolResult:
         actor = _client_name(ctx)

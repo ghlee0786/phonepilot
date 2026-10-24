@@ -11,7 +11,7 @@
 #define AppName "PhonePilot"
 #define AppExe "PhonePilot.exe"
 #define CliExe "phonepilot-cli.exe"
-#define ReleasesUrl "https://github.com/ghlee0786/phonepilot-releases"
+#define ReleasesUrl "https://github.com/ghlee0786/phonepilot"
 #define AppIdGuid "8F3C2B1E-5D4A-4C7B-9E21-6A0F3D5B7C91"
 
 [Setup]

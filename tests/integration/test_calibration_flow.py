@@ -86,7 +86,7 @@ def test_runtime_calibration_saves_per_device(tmp_path, monkeypatch):
         rt.call_sync(human(), timeout=30)
         prof = rt.finish_calibration(save=True)
         assert prof["calibrated"] and prof["tap_ms"] == 75
-        stored = ProfileStore(tmp_path / "appdata" / "PhonePilot" / "gesture_profiles.yaml").get(rt.device.info.serial_hash)
+        stored = ProfileStore(tmp_path / "local" / "PhonePilot" / "gesture_profiles.yaml").get(rt.device.info.serial_hash)
         assert stored.tap_ms == 75
         assert rt.stack.tools.gesture_profile.tap_ms == 75
         rt.reset_calibration()

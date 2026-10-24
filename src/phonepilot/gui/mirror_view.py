@@ -234,13 +234,16 @@ class MirrorView(QWidget):
 
     # -------------------------------------------------------------- mouse
     def _touch(self, action: p.MotionAction, x: int, y: int, pointer_id: int = p.POINTER_ID_GENERIC_FINGER) -> None:
-        self.pump.arbiter(lambda a: a.human_touch(action, x, y, pointer_id=pointer_id))
+        t = time.monotonic()  # the person's timing, before the input waits in the pump (FR-INP-035)
+        self.pump.arbiter(lambda a: a.human_touch(action, x, y, pointer_id=pointer_id, t=t))
 
     def _key_tap(self, keycode: int, action: p.KeyAction) -> None:
-        self.pump.arbiter(lambda a: a.human_key(action, keycode))
+        t = time.monotonic()
+        self.pump.arbiter(lambda a: a.human_key(action, keycode, t=t))
 
     def _raw(self, msg: bytes) -> None:
-        self.pump.arbiter(lambda a: a.human_raw(msg))
+        t = time.monotonic()
+        self.pump.arbiter(lambda a: a.human_raw(msg, t=t))
 
     def mousePressEvent(self, e: QMouseEvent) -> None:
         btn = e.button()
@@ -366,7 +369,8 @@ class MirrorView(QWidget):
     def _key_down(self, qt_key: int, keycode: int, meta: int, repeat: bool) -> None:
         self._pressed[qt_key] = (keycode, meta)
         rep = 1 if repeat else 0
-        self.pump.arbiter(lambda a: a.human_key(p.KeyAction.DOWN, keycode, meta, rep))
+        t = time.monotonic()
+        self.pump.arbiter(lambda a: a.human_key(p.KeyAction.DOWN, keycode, meta, rep, t=t))
 
     def keyReleaseEvent(self, e: QKeyEvent) -> None:
         if e.isAutoRepeat():

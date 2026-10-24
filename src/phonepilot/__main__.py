@@ -79,6 +79,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"  {r['ref']} ({r['kind']})")
     vault.zero_all()
     reg = SkillRegistry(repo_root() / "skills", appdata_dir() / "skills", appdata_dir() / "approved_skills.json")
+    from phonepilot.runtime import recordings_dir
+
+    reg.recorded_dir = recordings_dir()
     reg.reload()
     print(f"[skills] {len(reg.skills)} loaded, {len(reg.errors)} errors, {len(reg.pending_user)} awaiting approval")
     for path, err in reg.errors.items():

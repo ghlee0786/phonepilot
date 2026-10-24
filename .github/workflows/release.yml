@@ -1,0 +1,68 @@
+name: Release
+
+# Push a tag v<version> (matching src/phonepilot/__init__.py) to build the installer and publish a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.1"
+        required: true
+
+permissions:
+  contents: write  # create the release and upload the installer
+
+jobs:
+  release:
+    name: Build installer and publish
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,build]"
+
+      - name: Tag matches the app version
+        shell: pwsh
+        run: |
+          $v = python -c "import phonepilot; print(phonepilot.__version__)"
+          if ("v$v" -ne $env:TAG) { Write-Error "tag $env:TAG does not match version v$v"; exit 1 }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Tests
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build (vendor binaries -> PyInstaller -> wizard images -> installer -> SHA-256)
+        run: python scripts/build_release.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = "dist/installer/PhonePilot-$env:VERSION-setup.exe", "dist/installer/PhonePilot-$env:VERSION-setup.exe.sha256"
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG @files --clobber
+          } else {
+            gh release create $env:TAG @files --title "PhonePilot $env:VERSION" --generate-notes
+          }

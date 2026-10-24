@@ -16,3 +16,13 @@ installer/assets/
 
 # third-party Claude skill (not ours to redistribute)
 .claude/skills/ui-ux-pro-max/
+
+# personal data: gesture calibration and task recordings may contain what was on the screen.
+# The app keeps them in %LOCALAPPDATA%\PhonePilot; never commit copies.
+gesture_profiles.yaml
+approved_skills.json
+recordings/
+recorded/
+*.recording.yaml
+mcp.token
+update_state.json

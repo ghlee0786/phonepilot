@@ -24,6 +24,24 @@ from phonepilot.security.secrets import SecretVault
 from phonepilot.testing.harness import Stack, build_stack
 
 log = logging.getLogger(__name__)
+
+
+def recordings_dir() -> Path:
+    """Task recordings live in the program's local data folder: never in the repo, never roamed (FR-SKL-014)."""
+    return localdata_dir() / "recordings"
+
+
+def _local_data_file(name: str) -> Path:
+    """Personal measurements (gesture profiles) live in %LOCALAPPDATA%; move a copy left in %APPDATA% by older versions."""
+    new, old = localdata_dir() / name, appdata_dir() / name
+    if not new.exists() and old.exists():
+        try:
+            new.parent.mkdir(parents=True, exist_ok=True)
+            old.replace(new)
+        except OSError:
+            log.warning("could not move %s to %s", old, new)
+            return old
+    return new
 T = TypeVar("T")
 
 
@@ -66,7 +84,7 @@ class CoreRuntime:
         self.recorder = CalibrationRecorder()
         self.last_calibration_samples: list[Any] = []
         self.task_recorder: Any = None
-        self.profiles = ProfileStore(appdata_dir() / "gesture_profiles.yaml")
+        self.profiles = ProfileStore(_local_data_file("gesture_profiles.yaml"))
         self.session_temp = temp_root() / f"session-{id(self):x}"
         self._reconnect_attempt = 0
         self._tracking = False
@@ -298,6 +316,7 @@ class CoreRuntime:
         stack.observer.screenshot_max_edge = cfg.agent.screenshot_max_edge
         stack.registry.user_dir = appdata_dir() / "skills"
         stack.registry.approved_file = appdata_dir() / "approved_skills.json"
+        stack.registry.recorded_dir = recordings_dir()
         stack.registry.reload()
         stack.timeline.listeners.append(lambda ev: self.emit("timeline", {"event": ev}))
         stack.arbiter.listeners.append(lambda ev, d: self.emit("control", {"event": ev, **d, "state": stack.arbiter.state.value}))
@@ -422,7 +441,9 @@ class CoreRuntime:
         skill_name = safe_skill_name(name)
         text = dump(rec.to_skill(skill_name, description))
         loaded = loader.parse(text)
-        path = appdata_dir() / "skills" / "recorded" / f"{skill_name.split('.', 1)[1]}.yaml"
+        # the folder the registry loads recordings from, so the new skill shows up right away
+        rec_dir = self.stack.registry.recorded_dir if self.stack is not None and self.stack.registry.recorded_dir else recordings_dir()
+        path = rec_dir / f"{skill_name.split('.', 1)[1]}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         if self.stack is not None:

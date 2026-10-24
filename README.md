@@ -1,5 +1,8 @@
 # PhonePilot
 
+[![CI](https://github.com/ghlee0786/phonepilot/actions/workflows/ci.yml/badge.svg)](https://github.com/ghlee0786/phonepilot/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ghlee0786/phonepilot?include_prereleases)](https://github.com/ghlee0786/phonepilot/releases)
+
 **내 Android 폰을 PC 화면에 띄워 마우스로 쓰고, AI에게도 맡길 수 있는 Windows 프로그램**
 
 ![AI가 폰을 조작하는 모습](docs/images/demo.gif)
@@ -20,7 +23,7 @@
 
 ## 이렇게 씁니다
 
-1. **설치**: `PhonePilot-<버전>-setup.exe`를 실행합니다(관리자 권한 불필요).
+1. **설치**: [Releases](https://github.com/ghlee0786/phonepilot/releases)에서 `PhonePilot-<버전>-setup.exe`를 받아 실행합니다(관리자 권한 불필요).
 2. **폰 연결**: 폰에서 USB 디버깅을 켜고 케이블을 꽂습니다. PhonePilot 창에 폰 화면이 뜹니다.
 3. **AI 연결**: Claude Code나 Claude Desktop에서 PhonePilot을 연결하고 "설정 앱 열어서 화면 밝기 보여줘"처럼 말로 시킵니다.
 
@@ -51,7 +54,7 @@ AI가 결제, 업로드, 좋아요·구독, 보안 설정처럼 되돌리기 어
 - AI는 도구 57개로 화면 읽기(`observe`), 누르기(`tap`), 입력(`type_text`), 스크롤, 앱 실행, 워크플로 실행을 합니다.
 - 비밀번호는 `type_secret(ref="GOOGLE_MAIN_PASSWORD")`처럼 **이름으로만** 입력을 요청합니다. 값은 PhonePilot이 직접 칩니다.
 
-> 상태: v0.1.0. 자동 테스트 274개 통과. 실기기(Galaxy S21+, Android 15)에서 USB 미러링과 MCP 화면 읽기를 확인했습니다.
+> 상태: v0.1.1. 자동 테스트 285개 + 실기기 테스트 5개 통과. 실기기(Galaxy S21+ Android 15, Galaxy Note20 Android 13)에서 미러링, MCP 화면 읽기, 제스처 보정, 작업 녹화→재생을 확인했습니다.
 
 ---
 
@@ -314,7 +317,7 @@ claude mcp add phonepilot --scope user -- "$env:LOCALAPPDATA\Programs\PhonePilot
 | C. 채널 초기 운영 | 프로필 완성도 체크리스트, 유사 채널 읽기 전용 분석, 첫 4주 콘텐츠 계획 | `skills/youtube/channel_launch_checklist.yaml`, `.claude/skills/phonepilot-channel-launch` |
 | D. 암호화폐·주식 조회 | 공식 API로 시세·잔고를 조회하고, 요청이 있으면 주문 초안을 만듭니다. 제출은 사람의 강화 승인이 필요합니다 | `.claude/skills/phonepilot-market-review` |
 
-작업 녹화로 만든 스킬은 `%APPDATA%\PhonePilot\skills\recorded\`에 `recorded.<이름>`으로 저장되고, 사용자가 직접 만든 것이므로 저장과 함께 승인됩니다.
+작업 녹화로 만든 스킬은 `%LOCALAPPDATA%\PhonePilot\recordings\`에 `recorded.<이름>`으로 저장되고, 사용자가 직접 만든 것이므로 저장과 함께 승인됩니다. 녹화에는 화면의 버튼 글자 같은 개인정보가 들어갈 수 있으므로 저장소에는 절대 넣지 않습니다(`.gitignore`로도 막혀 있습니다).
 
 기본 제공 실행 스킬(`skills/`):
 `android.dismiss_common_popups`, `android.go_home_clean`, `google.account_with_totp`, `google.open_security_page`, `youtube.create_channel`, `youtube.channel_launch_checklist`
@@ -349,7 +352,8 @@ claude mcp add phonepilot --scope user -- "$env:LOCALAPPDATA\Programs\PhonePilot
 | `%APPDATA%\PhonePilot\secrets.meta.yaml` | 비밀값별 종류·허용 앱·허용 호스트 (예시: `secrets.meta.example.yaml`, 비밀 아님) |
 | `%APPDATA%\PhonePilot\config.yaml` | 앱 설정, 안전 한도, 연동 켜기·끄기 (예시: `config.example.yaml`) |
 | `%APPDATA%\PhonePilot\skills\` | 사용자 스킬 |
-| `%APPDATA%\PhonePilot\gesture_profiles.yaml` | 기기별 제스처 보정값 |
+| `%LOCALAPPDATA%\PhonePilot\gesture_profiles.yaml` | 기기별 제스처 보정값(개인 측정값, 다른 PC로 동기화되지 않음) |
+| `%LOCALAPPDATA%\PhonePilot\recordings\` | 작업 녹화 스킬(개인정보가 들어갈 수 있음, 저장소에 넣지 않음) |
 | `%LOCALAPPDATA%\PhonePilot\` | MCP 토큰, 일일 카운터(날짜·합계만) |
 | `%USERPROFILE%\Documents\PhonePilot-Recovery\` | 구글 백업 코드 보관함 |
 | `%USERPROFILE%\Documents\PhonePilot-Assets\` | 폰으로 보낼 수 있는 파일 폴더(프로필·배너 이미지 등) |
@@ -394,7 +398,7 @@ docs/                PRD, 개발 문서, MCP 가이드, 도구 레퍼런스, 릴
 ## 테스트
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                         # 단위·통합·GUI 274개 (폰 불필요, 약 1분 30초)
+.venv\Scripts\python.exe -m pytest                         # 단위·통합·GUI·시나리오 285개 (폰 불필요, 약 1분 30초)
 .venv\Scripts\python.exe -m pytest -m device tests\device  # 실기기 테스트 (폰 연결 + 잠금 해제 상태)
 ```
 
@@ -420,18 +424,17 @@ docs/                PRD, 개발 문서, MCP 가이드, 도구 레퍼런스, 릴
 
 **완료**
 - PRD 기준 기능 전체 구현: 미러링(USB·무선), 입력·제스처 합성과 보정, 관찰, 정책·승인·한도, 비밀값 격리, 복구 코드 보관함, 스킬·워크플로 엔진, MCP 서버, 내장 에이전트, 세션 정리
-- 자동 테스트 274개 통과
+- 자동 테스트 285개 통과(GitHub Actions CI에서 매 push마다 실행), 실기기 테스트 5개 통과
+- 실기기(Galaxy Note20, Android 13)에서 제스처 보정 측정값, 프로필 스크롤, 작업 녹화→재생 검증
 - 설치 프로그램(Inno Setup), GitHub 릴리스 업데이트 확인, 문제 신고
 - 작업 녹화→스킬과 재생, 사람·AI 제스처 유사도 측정
 - 실기기(Galaxy S21+ SM-G996N, Android 15)에서 USB 미러링 확인: 864×1920, 하드웨어 디코드, 첫 프레임 약 1초
 - MCP 중계기를 통해 실기기 `observe` 동작 확인
 
 **남은 일**
-- 실기기 테스트(`pytest -m device`) 실행과 기록
 - 실기기에서 기본 조작 시연(홈 → 설정 → 스크롤 → 뒤로)과 입력 지연 측정
 - 무선 QR 페어링 실기기 검증
 - YouTube·Upbit·KIS 연동의 실제 API 호출 검증(현재 단위 테스트만)
-- 실기기에서 작업 녹화→재생 검증
 
 **알려진 제약**
 - 일부 Samsung 기기(Android 15)에서는 scrcpy 서버 인자가 13개를 넘으면 서버가 죽습니다. 그래서 서버를 4.1로 고정하고 기본값이 아닌 인자만 넘깁니다. 자세한 내용은 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 4장에 있습니다.

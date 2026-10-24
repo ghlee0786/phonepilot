@@ -146,3 +146,33 @@ async def test_swipe_without_duration_uses_profile(stack, monkeypatch):
     moving_end = max(s.t_ms for s in steps if s.y == steps[-1].y and s.action is g.TouchAction.MOVE)
     assert steps[-1].t_ms - min(s.t_ms for s in steps if s.y == steps[-1].y) >= 140  # rested ~settle_ms before lifting
     assert moving_end > 300  # 1200 px at 2 px/ms ~ 600 ms, not the fixed 300 ms default
+
+
+def test_personal_data_lives_in_local_appdata(tmp_path, monkeypatch):
+    """Gesture profiles and recordings stay in %LOCALAPPDATA%; an old %APPDATA% profile is moved there."""
+    from phonepilot.runtime import _local_data_file, recordings_dir
+
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    old = tmp_path / "roaming" / "PhonePilot" / "gesture_profiles.yaml"
+    old.parent.mkdir(parents=True)
+    old.write_text("abc: {}\n", encoding="utf-8")
+    new = _local_data_file("gesture_profiles.yaml")
+    assert new == tmp_path / "local" / "PhonePilot" / "gesture_profiles.yaml"
+    assert new.read_text(encoding="utf-8") == "abc: {}\n" and not old.exists()
+    assert recordings_dir() == tmp_path / "local" / "PhonePilot" / "recordings"
+
+
+def test_list_rows_with_a_shared_id_get_their_own_selector():
+    """A resource id shared by every row of a list must not be the selector (replay would tap the first row)."""
+    from phonepilot.observe.uitree import UIElement
+    from phonepilot.skills.recorder import selector_for
+
+    def row(i, title):
+        b = (0, 300 + i * 200, 1080, 500 + i * 200)
+        return UIElement(i, f"k{i}", "button", f"{title} / 부제목", "", "", "android:id/row", "LinearLayout", "p", b, b, True, True, False, None, False, False)
+
+    rows = [row(0, "연결"), row(1, "디스플레이"), row(2, "소리")]
+    assert selector_for(rows[1], rows) == {"text_contains": "디스플레이", "resource_id": "android:id/row"}
+    same = [row(0, "같음"), row(1, "같음")]
+    assert selector_for(same[1], same) is None  # nothing unique -> the recorder keeps coordinates

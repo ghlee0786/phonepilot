@@ -324,7 +324,7 @@ def test_lost_connection_greys_out_device_controls(window: MainWindow) -> None:
 def test_report_problem_prefills_issue(window: MainWindow) -> None:
     window.report_problem("DEVICE_OFFLINE: lost", "Traceback ...")
     dlg = window._report_dialog
-    assert dlg is not None and "/phonepilot-releases/issues/new?" in dlg.url
+    assert dlg is not None and "/ghlee0786/phonepilot/issues/new?" in dlg.url
     assert "DEVICE_OFFLINE" in unquote_plus(dlg.url)
     dlg.reject()
 

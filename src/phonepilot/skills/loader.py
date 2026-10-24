@@ -114,6 +114,7 @@ class SkillRegistry:
     def __init__(self, builtin_dir: Path | None, user_dir: Path | None = None, approved_hashes_file: Path | None = None) -> None:
         self.builtin_dir = builtin_dir
         self.user_dir = user_dir
+        self.recorded_dir: Path | None = None  # task recordings (FR-SKL-014), kept apart from hand-written skills
         self.approved_file = approved_hashes_file
         self.skills: dict[str, LoadedSkill] = {}
         self.errors: dict[str, str] = {}
@@ -136,7 +137,7 @@ class SkillRegistry:
         self.skills.clear()
         self.errors.clear()
         self.pending_user.clear()
-        for base, builtin in ((self.builtin_dir, True), (self.user_dir, False)):
+        for base, builtin in ((self.builtin_dir, True), (self.user_dir, False), (self.recorded_dir, False)):
             if not base or not base.exists():
                 continue
             for path in sorted(base.rglob("*.yaml")):

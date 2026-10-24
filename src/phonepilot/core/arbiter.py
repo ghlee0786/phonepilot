@@ -152,26 +152,31 @@ class InputArbiter:
                 self._open.pop(pid, None)
 
     # --------------------------------------------------------------- human
-    async def human_touch(self, action: p.MotionAction, x: int, y: int, pointer_id: int = p.POINTER_ID_GENERIC_FINGER) -> None:
+    async def human_touch(
+        self, action: p.MotionAction, x: int, y: int, pointer_id: int = p.POINTER_ID_GENERIC_FINGER, t: float | None = None
+    ) -> None:
+        """t: when the input happened (monotonic seconds, taken in the GUI thread). Recorders use it so a busy
+        core loop does not distort the person's timing; defaults to now."""
         self._note_human()
-        if self.recorder is not None and pointer_id == p.POINTER_ID_GENERIC_FINGER:
+        t_ms = (self._clock() if t is None else t) * 1000
+        if pointer_id == p.POINTER_ID_GENERIC_FINGER and (self.recorder is not None or self.task_recorder is not None):
             name = {p.MotionAction.DOWN: "down", p.MotionAction.MOVE: "move", p.MotionAction.UP: "up"}.get(action, "cancel")
-            self.recorder.feed(name, x, y, self._clock() * 1000)
-        if self.task_recorder is not None and pointer_id == p.POINTER_ID_GENERIC_FINGER:
-            name = {p.MotionAction.DOWN: "down", p.MotionAction.MOVE: "move", p.MotionAction.UP: "up"}.get(action, "cancel")
-            self.task_recorder.feed_touch(name, x, y, self._clock() * 1000)
+            if self.recorder is not None:
+                self.recorder.feed(name, x, y, t_ms)
+            if self.task_recorder is not None:
+                self.task_recorder.feed_touch(name, x, y, t_ms)
         await self._touch(action, pointer_id, x, y)
 
-    async def human_key(self, action: p.KeyAction, keycode: int, meta: int = 0, repeat: int = 0) -> None:
+    async def human_key(self, action: p.KeyAction, keycode: int, meta: int = 0, repeat: int = 0, t: float | None = None) -> None:
         self._note_human()
         if self.task_recorder is not None and action == p.KeyAction.DOWN and repeat == 0:
-            self.task_recorder.feed_key(keycode, self._clock() * 1000)
+            self.task_recorder.feed_key(keycode, (self._clock() if t is None else t) * 1000)
         await self._send(p.inject_keycode(action, keycode, repeat, meta))
 
-    async def human_raw(self, msg: bytes) -> None:
+    async def human_raw(self, msg: bytes, t: float | None = None) -> None:
         self._note_human()
         if self.task_recorder is not None and msg:
-            now = self._clock() * 1000
+            now = (self._clock() if t is None else t) * 1000
             if msg[0] in (p.ControlType.INJECT_TEXT, p.ControlType.SET_CLIPBOARD):
                 self.task_recorder.feed_text(now)  # content is not recorded
             elif msg[0] == p.ControlType.BACK_OR_SCREEN_ON and len(msg) > 1 and msg[1] == p.KeyAction.DOWN:

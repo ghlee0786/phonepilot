@@ -27,6 +27,7 @@ MIN_PAUSE_MS = 800
 HOLD_END_MS = 60  # matches the lower clamp of the profile's settle time
 MAX_PAUSE_MS = 10000
 KEY_ACTIONS = {3: "home", 4: "back", 187: "recents"}  # Android keycodes -> system_action
+PRESS_KEYS = {66: "enter"}  # Android keycodes -> press_key (Enter submits search boxes and forms)
 
 
 @dataclass
@@ -42,19 +43,34 @@ class RecordedEvent:
     hold_end: bool = False  # swipe: the finger rested at the end before lifting (drag-scroll, not a fling)
 
 
-def selector_for(el: uitree.UIElement) -> dict[str, Any] | None:
-    """Most specific stable selector for an element; None when it has nothing to match on."""
+def _candidates(el: uitree.UIElement) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     if el.text:
-        sel: dict[str, Any] = {"text": el.text}
-    elif el.desc:
-        sel = {"desc": el.desc}
-    elif el.resource_id:
-        sel = {"resource_id": el.resource_id}
-    else:
-        return None
-    if el.resource_id and "resource_id" not in sel:
-        sel["resource_id"] = el.resource_id
-    return sel
+        out.append({"text": el.text})
+    if el.desc:
+        out.append({"desc": el.desc})
+    if not el.text and el.label and el.label not in ("unlabeled", el.desc):
+        # list rows carry their text in children: "디스플레이 / 밝기 • ..." -> match the title, not the subtitle
+        out.append({"text_contains": el.label.split(" / ")[0]})
+    if el.resource_id:
+        out = [dict(c, resource_id=el.resource_id) for c in out] + out + [{"resource_id": el.resource_id}]
+    return out
+
+
+def selector_for(el: uitree.UIElement, elements: list[uitree.UIElement] | None = None) -> dict[str, Any] | None:
+    """Most specific selector that picks out this element on its screen; None -> record coordinates instead.
+
+    With `elements`, a candidate is used only if every element it matches lies inside this one, so a
+    resource id shared by all rows of a list never replays as a tap on the first row.
+    """
+    for sel in _candidates(el):
+        if elements is None:
+            return sel
+        hits = uitree.find(elements, sel)
+        x0, y0, x1, y1 = el.bounds
+        if hits and all(x0 <= h.center[0] < x1 and y0 <= h.center[1] < y1 for h in hits):
+            return sel
+    return None
 
 
 @dataclass
@@ -119,9 +135,11 @@ class TaskRecorder:
 
     def feed_key(self, keycode: int, t_ms: float) -> None:
         """Called on key DOWN. Only navigation keys are recorded; typing arrives via feed_text."""
-        if self.active and keycode in KEY_ACTIONS:
+        if self.active and (keycode in KEY_ACTIONS or keycode in PRESS_KEYS):
             obs = self._observation()
-            self._add(RecordedEvent("key", t_ms, t_ms, key=KEY_ACTIONS[keycode], package=obs.package if obs is not None else ""))
+            kind = "key" if keycode in KEY_ACTIONS else "press"
+            name = KEY_ACTIONS.get(keycode) or PRESS_KEYS[keycode]
+            self._add(RecordedEvent(kind, t_ms, t_ms, key=name, package=obs.package if obs is not None else ""))
 
     def feed_text(self, t_ms: float) -> None:
         """Text was injected. The content is deliberately not passed in; consecutive chunks merge."""
@@ -132,7 +150,7 @@ class TaskRecorder:
             return
         obs = self._observation()
         focused = next((e for e in obs.elements if e.focused), None) if obs is not None else None
-        sel = selector_for(focused) if focused is not None else None
+        sel = selector_for(focused, obs.elements) if focused is not None else None
         pkg = obs.package if obs is not None else ""
         self._add(RecordedEvent("text", t_ms, t_ms, element=sel, label=focused.label if focused else "", package=pkg))
 
@@ -147,7 +165,7 @@ class TaskRecorder:
             if sample.kind is not GestureKind.SWIPE:
                 el = uitree.element_at(obs.elements, int(x0), int(y0))
                 if el is not None:
-                    ev.element = selector_for(el)
+                    ev.element = selector_for(el, obs.elements)
                     ev.label = el.label
         self._add(ev)
 
@@ -201,6 +219,8 @@ class TaskRecorder:
                 )
             elif ev.kind == "key":
                 steps.append({"id": f"key_{i}", "action": "system_action", "args": {"action": ev.key, "reason": f"시연 {i}: {ev.key}"}})
+            elif ev.kind == "press":
+                steps.append({"id": f"press_{i}", "action": "press_key", "args": {"key": ev.key, "reason": f"시연 {i}: {ev.key}"}})
             elif ev.kind == "text":
                 n_text += 1
                 key = f"text_{n_text}"

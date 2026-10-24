@@ -302,6 +302,7 @@ class DevicePanel(QWidget):
     recordFinish = Signal()
     recordCancel = Signal()
     changeDropDir = Signal()
+    checkHealth = Signal()
     checkUpdate = Signal()
     reportProblem = Signal()
 
@@ -337,6 +338,26 @@ class DevicePanel(QWidget):
         self.reconnect_button.clicked.connect(self.reconnect.emit)
         form.addRow(self.reconnect_button)
         lay.addWidget(info_box)
+
+        health_box = HelpGroupBox(
+            "연결 상태",
+            "2초마다 영상·조작 채널·디코더를 확인하고, 15초마다 폰의 화면 서버와 포트 연결을 점검합니다. "
+            "화면이 멈추면 키 프레임 요청 → 다시 연결 → adb 재시작 순서로 스스로 복구합니다.\n\n"
+            "최근 장애와 복구 결과는 이 PC에만 기록되고(화면 내용·개인정보 없음), [문제 신고]에 함께 담깁니다. "
+            "그래도 이상하면 [다시 연결]을 누르세요.",
+        )
+        hl = QVBoxLayout(health_box)
+        self.health_status = QLabel("확인 전")
+        hl.addWidget(self.health_status)
+        self.health_incidents = QLabel("")
+        self.health_incidents.setObjectName("metaText")
+        self.health_incidents.setWordWrap(True)
+        self.health_incidents.setVisible(False)
+        hl.addWidget(self.health_incidents)
+        self.health_check_button = QPushButton(icon("shield_check"), "지금 점검")
+        self.health_check_button.clicked.connect(self.checkHealth.emit)
+        hl.addLayout(button_grid([self.health_check_button]))
+        lay.addWidget(health_box)
 
         mcp_box = QGroupBox("AI 연결 (MCP)")
         ml = QVBoxLayout(mcp_box)
@@ -495,6 +516,19 @@ class DevicePanel(QWidget):
             f"프로필: 탭 {prof.get('tap_ms')}ms · 길게 {prof.get('long_press_ms')}ms · "
             f"스와이프 {speed:.2f}px/ms · 곡률 {prof.get('arc')} · 속도 정점 {prof.get('peak')} · 멈춤 {prof.get('settle_ms')}ms"
         )
+
+    def set_health(self, rep: dict[str, Any]) -> None:
+        if rep.get("recovering"):
+            self.health_status.setText("⚠ 문제 감지 — 자동 복구 중…")
+        elif rep.get("problems"):
+            self.health_status.setText("⚠ " + ", ".join(rep["problems"]))
+        elif rep.get("state") == "STREAMING":
+            self.health_status.setText("✔ 정상")
+        else:
+            self.health_status.setText("연결되지 않음")
+        recent = rep.get("recent_incidents") or []
+        self.health_incidents.setVisible(bool(recent))
+        self.health_incidents.setText("최근 장애\n" + "\n".join(recent[:5]))
 
     def set_update_status(self, text: str) -> None:
         self.update_status.setText(text)

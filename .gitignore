@@ -26,3 +26,4 @@ recorded/
 *.recording.yaml
 mcp.token
 update_state.json
+incidents.jsonl

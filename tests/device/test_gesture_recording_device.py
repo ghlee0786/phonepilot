@@ -282,3 +282,71 @@ def test_d4_dropped_file_lands_in_the_phone_folder(rt, tmp_path):  # noqa: ANN00
     assert res["files"] == [f"/sdcard/Download/{name}"]
     assert second == f"/sdcard/Download/{name[:-4]} (1).txt"
     assert name in out and "PhonePilot drop test" in out
+
+
+# ------------------------------------------------------------ self-recovery on the real phone (PRD 25)
+# Faults are injected into THIS test's session only (its own scid / port); other PhonePilot windows are untouched.
+def _own(rt):  # noqa: ANN001
+    srv = rt.device._server  # noqa: SLF001
+    return srv.scid, srv.port
+
+
+def _wait_new_session(rt, old, timeout: float = 45) -> None:  # noqa: ANN001
+    from phonepilot.runtime import ConnState
+
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if rt.device is not old and rt.state == ConnState.STREAMING:
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"no new session within {timeout}s (state {rt.state})")
+
+
+def test_d5_key_frame_request_is_answered_on_a_static_screen(rt):  # noqa: ANN001
+    async def go() -> tuple[int, int]:
+        await asyncio.sleep(1.5)  # let the screen settle: no new frames on a static screen
+        before = rt.device.framebus.latest().seq
+        await rt.device.request_keyframe()
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            if rt.device.framebus.latest().seq != before:
+                break
+        return before, rt.device.framebus.latest().seq
+
+    before, after = run(rt, go())
+    assert after != before, "RESET_VIDEO must produce a frame even when nothing moves"
+
+
+def test_d6_killed_server_is_detected_and_replaced(rt):  # noqa: ANN001
+    old = rt.device
+    scid, _ = _own(rt)
+    t0 = time.monotonic()
+    run(rt, rt.device.shell(f"pkill -f 'scid={scid:08x}'"))
+    _wait_new_session(rt, old)
+    took = time.monotonic() - t0
+    inc = rt.incidents.recent(1)[0]
+    assert inc.recovered is True, inc
+    assert took < 30, f"recovery took {took:.1f}s"
+    assert run(rt, rt.device.probe()) == []  # the new session is healthy
+
+
+def test_d7_removed_forward_is_found_by_the_deep_check(rt):  # noqa: ANN001
+    old = rt.device
+    _, port = _own(rt)
+    rt.health.cfg.deep_every = 1.0
+    old.adb.forward_remove(f"tcp:{port}")  # what another tool's `adb forward --remove-all` would do
+    _wait_new_session(rt, old)
+    assert any(i.problem in ("FORWARD_MISSING", "DISCONNECTED", "NO_FRAME_AFTER_RESET") for i in rt.incidents.recent(3))
+    rt.health.cfg.deep_every = 15.0
+
+
+def test_d8_input_still_works_after_recovery(rt):  # noqa: ANN001
+    async def go() -> str:
+        await open_settings(rt)
+        await hand_to_ai(rt)
+        res = await rt.stack.tools.scroll(actor="device-test", direction="down")
+        assert res["ok"]
+        return (await rt.device.foreground())[0]
+
+    assert run(rt, go()) == SETTINGS
+

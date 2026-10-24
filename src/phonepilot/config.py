@@ -101,6 +101,14 @@ class IntegrationsConfig(BaseModel):
     kis: IntegrationToggle = Field(default_factory=IntegrationToggle)
 
 
+class HealthSettings(BaseModel):
+    # PRD 25: detect stalls early and recover by itself (key frame -> reconnect -> adb restart)
+    self_heal: bool = True
+    interval_s: float = 2.0
+    deep_check_s: float = 15.0
+    heartbeat_s: float = 30.0
+
+
 class TransferConfig(BaseModel):
     # drag & drop onto the mirror copies files here (shared storage only, FR-INP-053)
     drop_dir: str = "/sdcard/Download"
@@ -126,6 +134,7 @@ class Config(BaseModel):
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
     update: UpdateConfig = Field(default_factory=UpdateConfig)
     transfer: TransferConfig = Field(default_factory=TransferConfig)
+    health: HealthSettings = Field(default_factory=HealthSettings)
     allowed_push_dirs: list[str] = Field(default_factory=lambda: ["%USERPROFILE%/Documents/PhonePilot-Assets"])
 
 

@@ -48,6 +48,7 @@ class InputArbiter:
         self.paused = False
         self.killed = False
         self.last_human_ts = -1e9
+        self.last_input_ts = -1e9  # any input sent to the phone; the HealthMonitor expects a frame after it
         self._open: dict[int, tuple[int, int]] = {}  # wire pointer id -> frame position
         self._ai_busy = False
         self._lease_owner: str | None = None
@@ -130,6 +131,7 @@ class InputArbiter:
 
     # ------------------------------------------------------------- low level
     async def _send(self, msg: bytes) -> None:
+        self.last_input_ts = self._clock()
         await self.device.send_control(msg)
 
     async def _touch(self, action: p.MotionAction, pointer_id: int, x: int, y: int, pressure: float = 1.0) -> None:

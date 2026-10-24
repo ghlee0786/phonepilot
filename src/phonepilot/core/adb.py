@@ -64,6 +64,11 @@ class DeviceManager:
         if res.returncode != 0:
             raise PhonePilotError("ADB_SERVER_CONFLICT", res.stderr.strip()[:200])
 
+    def restart_server(self) -> None:
+        """Last-resort recovery: a wedged adb server is replaced. Other adb tools reconnect on their own."""
+        self._run("kill-server", timeout=15)
+        self.start_server()
+
     def devices(self) -> list[DeviceEntry]:
         try:
             out = []

@@ -9,7 +9,7 @@ import av
 import numpy as np
 import pytest
 
-from phonepilot.core.decoder import Packet, VideoDecoder
+from phonepilot.core.decoder import QUEUE_PACKETS, Packet, VideoDecoder
 from phonepilot.core.framebus import FrameBus
 from phonepilot.core.scrcpy import protocol as p
 from phonepilot.core.scrcpy.server import pump, read_preamble
@@ -79,11 +79,26 @@ async def test_stream_decode_and_rotation_tc_mir_03_04():
 def test_decoder_drops_to_next_keyframe_when_full():
     bus = FrameBus()
     dec = VideoDecoder("h264", bus, hw="sw")  # not started: queue fills up
-    pkts = encode(160, 320, 40)
+    pkts = encode(160, 320, QUEUE_PACKETS + 20)
     for i, (pkt, key) in enumerate(pkts):
         dec.push(Packet(pkt, i, key, False))
     assert dec.dropped > 0
-    assert dec.queue.qsize() <= 8
+    assert dec.queue.qsize() <= QUEUE_PACKETS
+
+
+def test_decoder_converts_only_the_newest_frame_of_a_burst():
+    """A fast scroll: decode everything (reference chain) but convert to RGB only when nothing newer is waiting."""
+    bus = FrameBus()
+    dec = VideoDecoder("h264", bus, hw="sw")
+    dec._open()  # noqa: SLF001
+    pkts = encode(160, 320, 30)
+    for i, (pkt, key) in enumerate(pkts):
+        dec.push(Packet(pkt, i, key, False))
+    while not dec.queue.empty():
+        dec._decode(dec.queue.get())  # noqa: SLF001
+    assert dec.waiting_key_since is None and dec.dropped == 0
+    assert dec.skipped > 0 and bus.latest() is not None
+    assert dec.decoded == len(pkts) or dec.decoded >= len(pkts) - 2  # codec delay may hold the last frame or two
 
 
 @pytest.mark.parametrize("hw", ["auto"])

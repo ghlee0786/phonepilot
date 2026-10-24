@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from phonepilot.core.framebus import FrameBus
+from phonepilot.core.scrcpy import protocol as p
 
 
 @dataclass
@@ -35,6 +36,17 @@ class DeviceInfo:
             "ime": self.ime,
             "navigation_mode": self.nav_mode,
         }
+
+
+@dataclass
+class DeviceHealth:
+    """What the transport knows about its own state; read by the HealthMonitor every couple of seconds."""
+
+    connected: bool = True
+    decoder_alive: bool = True
+    control_alive: bool = True
+    waiting_key_since: float | None = None  # monotonic time the decoder started dropping until a key frame
+    decode_errors: int = 0
 
 
 class DeviceBackend(ABC):
@@ -77,6 +89,19 @@ class DeviceBackend(ABC):
     @property
     def connected(self) -> bool:
         return True
+
+    # ------------------------------------------------------------ health (PRD 25, self-recovery)
+    def health(self) -> DeviceHealth:
+        return DeviceHealth(connected=self.connected)
+
+    async def request_keyframe(self) -> None:
+        """Ask the encoder to restart and send a key frame: un-sticks a decoder waiting for one and proves the
+        whole video path works, since a reset always produces a frame even on a static screen."""
+        await self.send_control(p.simple(p.ControlType.RESET_VIDEO))
+
+    async def probe(self) -> list[str]:
+        """Deeper checks that need adb round trips (server process, port forward). Problem codes, empty if fine."""
+        return []
 
     def display_to_frame(self, x: float, y: float) -> tuple[int, int]:
         dw, dh = self.display_size

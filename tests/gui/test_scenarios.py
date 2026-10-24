@@ -376,3 +376,54 @@ def test_s12_dropped_apk_asks_before_installing(qtbot, window: MainWindow, runti
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
     drop_on_mirror(qtbot, window, [apk])
     qtbot.waitUntil(lambda: "/sdcard/Download/tool.apk" in dev.pushed, timeout=5000)  # copied, not installed
+
+
+# ------------------------------------------------------------------ health (PRD 25)
+
+
+def test_s13_after_self_recovery_the_mirror_follows_the_new_session(qtbot, window: MainWindow, runtime: CoreRuntime) -> None:  # noqa: ANN001
+    old = runtime.device
+    old.decoder_dead = True
+    runtime.call_sync(runtime.check_health(), timeout=30)
+    qtbot.waitUntil(lambda: runtime.device is not old and window.mirror._device is runtime.device, timeout=5000)  # noqa: SLF001
+    new = runtime.device
+    new.goto("settings")
+    qtbot.waitUntil(lambda: window.mirror.frame_seq == new.framebus.latest().seq, timeout=3000)
+    qtbot.waitUntil(lambda: "최근 장애" in window.device_panel.health_incidents.text(), timeout=3000)
+    assert "영상 디코더가 멈춤" in window.device_panel.health_incidents.text()
+
+
+def test_s14_reconnect_button_works_while_streaming(qtbot, window: MainWindow, runtime: CoreRuntime) -> None:  # noqa: ANN001
+    window.refresh_status()
+    btn = window.device_panel.reconnect_button
+    assert btn.isEnabled(), "a frozen session still looks connected; the person must be able to replace it"
+    old = runtime.device
+    qtbot.mouseClick(btn, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: runtime.device is not old and runtime.state.value == "STREAMING", timeout=10000)
+    qtbot.waitUntil(lambda: window.mirror._device is runtime.device, timeout=3000)  # noqa: SLF001
+
+
+def test_s15_check_now_shows_the_state(qtbot, window: MainWindow, runtime: CoreRuntime) -> None:  # noqa: ANN001
+    qtbot.mouseClick(window.device_panel.health_check_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.device_panel.health_status.text() == "✔ 정상", timeout=5000)
+
+
+def test_s16_mirror_reattaches_if_it_was_left_on_an_old_session(qtbot, window: MainWindow, runtime: CoreRuntime) -> None:  # noqa: ANN001
+    from phonepilot.testing.fake_device import FakeDevice, demo_screens
+
+    stale = FakeDevice(demo_screens(), "home")
+    window.mirror.attach(stale)  # e.g. a missed state event
+    window.refresh_status()
+    assert window.mirror._device is runtime.device  # noqa: SLF001
+
+
+def test_s17_badge_never_says_connected_while_the_stream_is_broken(qtbot, window: MainWindow, runtime: CoreRuntime) -> None:  # noqa: ANN001
+    """The person must see that something is wrong even when the USB link itself is still up."""
+    window.refresh_status()
+    qtbot.waitUntil(lambda: "연결됨" in window.conn_badge.text(), timeout=3000)
+    window._ev_health({"state": "STREAMING", "recovering": False, "codes": ["WAITING_KEYFRAME"], "problems": ["영상이 키 프레임을 기다리며 멈춤"]})  # noqa: SLF001
+    assert window.conn_badge.text().startswith("⚠") and "연결됨" not in window.conn_badge.text()
+    window._ev_health({"state": "STREAMING", "recovering": True, "codes": ["NO_FRAME_AFTER_RESET"], "problems": []})  # noqa: SLF001
+    assert window.conn_badge.text() == "⚠ 복구 중" and window.mirror.offline_notice
+    window._ev_health({"state": "STREAMING", "recovering": False, "codes": ["VIDEO_STALLED"], "problems": []})  # noqa: SLF001
+    assert "연결됨" in window.conn_badge.text() and not window.mirror.offline_notice  # a quiet screen is not an alarm

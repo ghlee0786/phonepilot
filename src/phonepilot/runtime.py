@@ -92,6 +92,11 @@ class CoreRuntime:
         self._stopping = False
         self.wireless = False
         self._pairing: Any = None
+        from phonepilot.core.health import IncidentLog
+
+        self.incidents = IncidentLog(localdata_dir() / "incidents.jsonl")
+        self.health: Any = None  # HealthMonitor, created with the stack
+        self._reconnecting = False
 
     # ------------------------------------------------------------ threading
     def _run_loop(self) -> None:
@@ -153,6 +158,7 @@ class CoreRuntime:
         self._apply_gesture_profile()
         self._set_state(ConnState.STREAMING, getattr(device, "device_name", "") or device.info.model)
         self._reconnect_attempt = 0
+        self._start_health()
 
     async def _connect_real(self) -> DeviceBackend:
         from phonepilot.core.adb import DeviceManager, preflight
@@ -196,7 +202,7 @@ class CoreRuntime:
                     raise
         else:
             raise last or PhonePilotError("ENCODER_FAILED", "could not start video")
-        dev.on_disconnect = lambda: self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._on_disconnect()))
+        dev.on_disconnect = lambda d=dev: self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._on_disconnect(d)))
         dev.on_size = lambda w, h: self.emit("frame_size", {"width": w, "height": h})
         return dev
 
@@ -263,9 +269,26 @@ class CoreRuntime:
         if self._pairing is not None:
             self.loop.call_soon_threadsafe(self._pairing.cancel)
 
-    async def _on_disconnect(self) -> None:
+    async def _on_disconnect(self, dev: DeviceBackend | None = None) -> None:
         if self._stopping or self.demo:
             return
+        if dev is not None and dev is not self.device:
+            return  # an old session we closed ourselves while reconnecting
+        if self._reconnecting or (self.health is not None and self.health.recovering):
+            return  # the HealthMonitor is already on it
+        self._reconnecting = True
+        inc = self.incidents.open("DISCONNECTED")
+        try:
+            ok = await self._reconnect_after_drop(inc)
+        finally:
+            self._reconnecting = False
+            self.incidents.close(inc, ok)
+            self.emit("health", self.health_report())
+
+    async def _reconnect_after_drop(self, inc: Any) -> bool:
+        old = self.device
+        if old is not None:
+            await self._close_quietly(old)
         stack = self.stack
         if stack is not None:
             stack.arbiter.pause_ai("disconnected")
@@ -283,12 +306,86 @@ class CoreRuntime:
                     await self.manager.wireless().reconnect_known()
                 except Exception:  # noqa: BLE001
                     pass
+            inc.actions.append("reconnect")
             try:
                 await self.connect()
-                return
+                return True
             except PhonePilotError:
                 continue
+        inc.actions.append("gave_up")
         self._set_state(ConnState.FAILED, "DEVICE_OFFLINE")
+        return False
+
+    # ------------------------------------------------------- health (PRD 25)
+    def _start_health(self) -> None:
+        from phonepilot.core.health import HealthConfig, HealthMonitor
+
+        hs = self.config.health
+        if not hs.self_heal or self.stack is None:
+            return
+        if self.health is None:
+            stack = self.stack
+            self.health = HealthMonitor(
+                get_device=lambda: self.device if self.state == ConnState.STREAMING else None,
+                get_last_input=lambda: stack.arbiter.last_input_ts,
+                reconnect=self.reconnect_session,
+                restart_adb=self._restart_adb_and_reconnect,
+                incidents=self.incidents,
+                cfg=HealthConfig(interval=hs.interval_s, deep_every=hs.deep_check_s, heartbeat_every=hs.heartbeat_s),
+                on_change=lambda: self.emit("health", self.health_report()),
+            )
+        self.health.start()
+
+    def health_report(self) -> dict[str, Any]:
+        rep = self.health.report() if self.health is not None else {
+            "ok": self.state == ConnState.STREAMING, "recovering": False, "problems": [], "seconds_since_check": None,
+            "recent_incidents": [i.summary() for i in self.incidents.recent(5)],
+        }
+        rep["state"] = self.state.value
+        return rep
+
+    async def check_health(self) -> dict[str, Any]:
+        """[지금 점검]: one full round including the adb-level checks."""
+        if self.health is not None:
+            await self.health.check(deep=True)
+        return self.health_report()
+
+    async def _close_quietly(self, dev: DeviceBackend) -> None:
+        try:
+            await asyncio.wait_for(dev.close(), 10)
+        except Exception as e:  # noqa: BLE001 - it is being replaced anyway
+            log.warning("closing the old session failed: %s", e)
+
+    async def reconnect_session(self, reason: str = "manual") -> bool:
+        """Close the current session (server, forward, decoder) and start a fresh one. Used by the HealthMonitor and
+        by [다시 연결]; a frozen-but-connected session would otherwise never be replaced."""
+        if self._reconnecting:
+            return False
+        self._reconnecting = True
+        try:
+            old = self.device
+            self._set_state(ConnState.RECONNECTING, reason)
+            if old is not None:
+                await self._close_quietly(old)
+            try:
+                await self.connect()
+                return True
+            except PhonePilotError as e:
+                self._set_state(ConnState.FAILED, e.code)
+                return False
+        finally:
+            self._reconnecting = False
+
+    async def _restart_adb_and_reconnect(self) -> bool:
+        if self.demo or self.manager is None:
+            return False
+        try:
+            await asyncio.to_thread(self.manager.restart_server)
+        except Exception as e:  # noqa: BLE001
+            log.warning("adb restart failed: %s", e)
+            return False
+        await asyncio.sleep(1.0)
+        return await self.reconnect_session("ADB_RESTART")
 
     def _build_stack(self, device: DeviceBackend) -> None:
         cfg = self.config
@@ -322,6 +419,7 @@ class CoreRuntime:
         stack.registry.user_dir = appdata_dir() / "skills"
         stack.registry.approved_file = appdata_dir() / "approved_skills.json"
         stack.registry.recorded_dir = recordings_dir()
+        stack.tools.health_report = self.health_report
         stack.registry.reload()
         stack.timeline.listeners.append(lambda ev: self.emit("timeline", {"event": ev}))
         stack.arbiter.listeners.append(lambda ev, d: self.emit("control", {"event": ev, **d, "state": stack.arbiter.state.value}))
@@ -732,6 +830,8 @@ class CoreRuntime:
         return report
 
     async def shutdown(self) -> None:
+        if self.health is not None:
+            self.health.stop()
         if self.device is not None or self.stack is not None:
             await self.end_session()
         if self._uvicorn is not None:

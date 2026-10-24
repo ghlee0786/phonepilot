@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 import random
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -78,6 +79,23 @@ class ScrcpyServer:
             self.device.sync.push(str(self.jar_path), REMOTE_JAR)
         except Exception as e:  # noqa: BLE001
             raise PhonePilotError("SERVER_PUSH_FAILED", str(e)) from e
+
+    def remove_stale_forwards(self) -> list[str]:
+        """Drop forwards to scrcpy sockets whose server no longer runs (a PhonePilot that was killed cannot clean
+        up). Live sessions of other windows or scrcpy keep theirs."""
+        removed: list[str] = []
+        try:
+            running = str(self.device.shell("ps -A -o ARGS | grep 'com.genymobile.scrcpy.Server' | grep -v grep", timeout=8))
+            for f in list(self.device.forward_list()):
+                m = re.search(r"localabstract:scrcpy_([0-9a-f]{8})", f.remote)
+                if m and f"scid={m.group(1)}" not in running:
+                    self.device.forward_remove(f.local)
+                    removed.append(f.local)
+        except Exception as e:  # noqa: BLE001 - housekeeping only
+            log.debug("stale forward cleanup skipped: %s", e)
+        if removed:
+            log.info("removed stale forwards: %s", ", ".join(removed))
+        return removed
 
     def forward(self) -> int:
         for port in range(27183, 27300):

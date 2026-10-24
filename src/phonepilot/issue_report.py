@@ -52,6 +52,7 @@ def build_report(
     device: str = "",
     connection: str = "",
     log_lines: Iterable[str] = (),
+    incidents: Iterable[str] = (),
 ) -> tuple[str, str]:
     """Issue (title, body) in Korean, scrubbed."""
     install = "설치본" if getattr(sys, "frozen", False) else "소스 실행"
@@ -69,6 +70,9 @@ def build_report(
         f"- 기기: {device or '알 수 없음'}",
         f"- 연결 상태: {connection or '알 수 없음'}",
     ]
+    recent = list(incidents)
+    if recent:
+        parts += ["", "## 최근 연결 장애", *[f"- {line}" for line in recent]]
     if details:
         parts += ["", "<details><summary>상세 (Traceback)</summary>", "", "```", details.strip(), "```", "</details>"]
     if logs:

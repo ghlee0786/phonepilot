@@ -50,7 +50,7 @@ jobs:
       - name: Keep personal data out of the repository
         shell: pwsh
         run: |
-          $bad = git ls-files | Select-String -Pattern '(^|/)(\.env|gesture_profiles\.yaml|approved_skills\.json|mcp\.token)$|(^|/)recordings?/|(^|/)recorded/|\.recording\.yaml$'
+          $bad = git ls-files | Select-String -Pattern '(^|/)(\.env|gesture_profiles\.yaml|approved_skills\.json|mcp\.token|incidents\.jsonl)$|(^|/)recordings?/|(^|/)recorded/|\.recording\.yaml$'
           if ($bad) { Write-Error "personal data is tracked: $bad"; exit 1 }
 
       - uses: actions/upload-artifact@v4

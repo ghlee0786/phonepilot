@@ -116,6 +116,7 @@ class ToolService(IntegrationMixin):
         self.clipboard_used = False
         self.pushed_files: list[str] = []
         self.skills: Any = None  # SkillEngine, attached by the runtime
+        self.health_report: Any = None  # CoreRuntime.health_report, attached by the runtime (PRD 25)
         self.integrations: dict[str, Any] = {}
         self._clip_seq = 1
         self.notifications: list[Callable[[str, str], None]] = []
@@ -949,6 +950,7 @@ class ToolService(IntegrationMixin):
             "steps_used": self.steps_used.get(actor, 0),
             "step_budget": self.config.step_budget,
             "active_workflows": self.skills.active() if self.skills else [],
+            "health": self.health_report() if self.health_report else None,
         }
 
     async def get_gesture_profile(self, actor: str = "agent") -> dict[str, Any]:

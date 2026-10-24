@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -25,24 +26,42 @@ class Packet:
     config: bool
 
 
+QUEUE_PACKETS = 120  # ~2 s at 60 fps before falling back to dropping until a key frame
+
+
 class VideoDecoder:
-    """Decodes on its own thread. Only the newest frame matters, so a full queue drops non-key packets."""
+    """Decodes on its own thread. Every packet is decoded (later frames depend on it), but only the newest frame is
+    converted to RGB and published: the conversion is the expensive part, and converting every frame of a fast
+    scroll made the decoder fall behind, drop packets and freeze until the next key frame."""
 
     def __init__(self, codec: str, framebus: FrameBus, hw: str = "auto", on_size: Callable[[int, int], None] | None = None) -> None:
         self.codec = codec
         self.framebus = framebus
         self.hw = hw
         self.on_size = on_size
-        self.queue: queue.Queue[Packet | None] = queue.Queue(maxsize=8)
+        self.queue: queue.Queue[Packet | None] = queue.Queue(maxsize=QUEUE_PACKETS)
         self.thread = threading.Thread(target=self._loop, name="pp-decoder", daemon=True)
         self.ctx: av.codec.CodecContext | None = None
         self.hw_active = False
         self.decoded = 0
+        self.skipped = 0  # decoded but not converted: a newer packet was already waiting
         self.dropped = 0
         self.errors = 0
         self._config: bytes = b""
         self._size: tuple[int, int] | None = None
         self._waiting_key = False
+        self.waiting_key_since: float | None = None  # HealthMonitor asks for a key frame when this gets old
+
+    @property
+    def alive(self) -> bool:
+        return self.thread.is_alive()
+
+    def _set_waiting_key(self, waiting: bool) -> None:
+        self._waiting_key = waiting
+        if not waiting:
+            self.waiting_key_since = None
+        elif self.waiting_key_since is None:
+            self.waiting_key_since = time.monotonic()
 
     def _open(self) -> None:
         name = CODEC_NAMES.get(self.codec, self.codec)
@@ -97,11 +116,17 @@ class VideoDecoder:
                     self.queue.get_nowait()
                 except queue.Empty:
                     break
-            self._waiting_key = not pkt.key_frame
+            self._set_waiting_key(not pkt.key_frame)
             if pkt.key_frame:
                 self.queue.put_nowait(pkt)
 
     def _loop(self) -> None:
+        try:
+            self._run()
+        except Exception:  # noqa: BLE001 - the HealthMonitor sees the dead thread and reconnects
+            log.exception("decoder thread died")
+
+    def _run(self) -> None:
         while True:
             pkt = self.queue.get()
             if pkt is None:
@@ -109,7 +134,7 @@ class VideoDecoder:
             if self._waiting_key and not pkt.key_frame:
                 self.dropped += 1
                 continue
-            self._waiting_key = False
+            self._set_waiting_key(False)
             try:
                 self._decode(pkt)
             except Exception as e:  # noqa: BLE001
@@ -118,14 +143,19 @@ class VideoDecoder:
                 if self.hw_active and self.errors > 3:
                     self.hw = "sw"
                     self._open()
-                    self._waiting_key = True
+                    self._set_waiting_key(True)
 
     def _decode(self, pkt: Packet) -> None:
         assert self.ctx is not None
         packet = av.Packet(pkt.data)
         if pkt.pts is not None:
             packet.pts = pkt.pts
-        for frame in self.ctx.decode(packet):
+        frames = self.ctx.decode(packet)
+        if frames and not self.queue.empty():
+            self.skipped += len(frames)  # a newer packet is waiting: only the reference state matters
+            self.decoded += len(frames)
+            return
+        for frame in frames:
             rgb = frame.to_ndarray(format="rgb24")
             h, w = rgb.shape[:2]
             if self._size != (w, h):

@@ -16,9 +16,10 @@ from xml.sax.saxutils import quoteattr
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from phonepilot.core.device import DeviceBackend, DeviceInfo
+from phonepilot.core.device import DeviceBackend, DeviceHealth, DeviceInfo
 from phonepilot.core.framebus import FrameBus
 from phonepilot.core.scrcpy import protocol as p
+from phonepilot.errors import PhonePilotError
 
 
 @dataclass
@@ -105,6 +106,16 @@ class FakeDevice(DeviceBackend):
         self.taps: list[tuple[int, int]] = []
         self._down: dict[int, tuple[int, int]] = {}
         self.extra_shell: dict[str, str] = {}
+        # fault injection for the HealthMonitor scenarios (PRD 25)
+        self.video_frozen = False  # frames stop, like a stalled encoder or stream; a RESET_VIDEO revives it
+        self.video_dead = False  # frames never come back, even after RESET_VIDEO
+        self.decoder_dead = False
+        self.control_dead = False
+        self.link_up = True  # False: the transport reports a disconnect
+        self.waiting_key_since: float | None = None
+        self.probe_problems: list[str] = []
+        self.keyframe_requests = 0
+        self.closed = False
         self.render()
 
     # ----------------------------------------------------------- properties
@@ -127,6 +138,11 @@ class FakeDevice(DeviceBackend):
         return n.text
 
     def render(self) -> None:
+        if self.video_frozen or self.video_dead:
+            return  # the phone changed, but no frame reaches the PC
+        self._publish_screen()
+
+    def _publish_screen(self) -> None:
         w, h = self._frame
         s = self.screen
         if s.secure:
@@ -203,7 +219,17 @@ class FakeDevice(DeviceBackend):
         self.render()
 
     async def send_control(self, msg: bytes) -> None:
+        if self.control_dead:
+            raise PhonePilotError("CONTROL_UNAVAILABLE", "control socket failed: ConnectionResetError")
         self.sent.append(bytes(msg))
+        if msg[:1] == bytes([p.ControlType.RESET_VIDEO]):
+            self.keyframe_requests += 1
+            if not self.video_dead:
+                self.video_frozen = False
+                self.waiting_key_since = None
+                self.render()
+            await asyncio.sleep(0)
+            return
         m = p.decode_control(msg)
         self.decoded.append(m)
         t = m["type"]
@@ -276,6 +302,26 @@ class FakeDevice(DeviceBackend):
 
     async def foreground(self) -> tuple[str, str]:
         return self.screen.package, self.screen.activity
+
+    # ------------------------------------------------------------ health
+    @property
+    def connected(self) -> bool:
+        return self.link_up and not self.closed
+
+    def health(self) -> DeviceHealth:
+        return DeviceHealth(
+            connected=self.connected,
+            decoder_alive=not self.decoder_dead,
+            control_alive=not self.control_dead,
+            waiting_key_since=self.waiting_key_since,
+        )
+
+    async def probe(self) -> list[str]:
+        await asyncio.sleep(0)
+        return list(self.probe_problems)
+
+    async def close(self) -> None:
+        self.closed = True
 
     async def push(self, local: str, remote: str) -> None:
         from pathlib import Path

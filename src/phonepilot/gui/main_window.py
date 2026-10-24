@@ -313,7 +313,8 @@ class MainWindow(QMainWindow):
         self.approvals_panel.openRequested.connect(self.approval_ctl.raise_dialog)
         self.device_panel.copyToken.connect(self.copy_token)
         self.device_panel.copyUrl.connect(lambda: self._copy_text(self.runtime.mcp_url, "MCP URL을 복사했습니다"))
-        self.device_panel.reconnect.connect(lambda: self.connect_device(start_mcp=False))
+        self.device_panel.reconnect.connect(self.reconnect_device)
+        self.device_panel.checkHealth.connect(self.check_health)
         self.device_panel.wirelessQr.connect(self.wireless_pair_qr)
         self.device_panel.wirelessCode.connect(self.wireless_pair_code)
         self.device_panel.wirelessScan.connect(self.wireless_scan)
@@ -792,6 +793,42 @@ class MainWindow(QMainWindow):
         self.device_panel.drop_status.setText(msg)
         self.statusBar().showMessage(msg, 8000)
 
+    # ------------------------------------------------------- health (PRD 25)
+    def _ev_health(self, data: dict[str, Any]) -> None:
+        """'연결됨' must mean the stream and input really work: health problems override the badge (PRD 25)."""
+        self.device_panel.set_health(data)
+        state, detail = getattr(self, "_conn", ("", ""))
+        if state != "STREAMING":
+            return
+        codes = [c for c in data.get("codes", []) if c != "VIDEO_STALLED"]  # a quiet screen after a tap is no alarm
+        if data.get("recovering"):
+            self.conn_badge.setText("⚠ 복구 중")
+            self.conn_badge.setToolTip("연결 문제를 감지해 자동으로 복구하는 중입니다: " + ", ".join(data.get("problems", [])))
+            self.conn_badge.setStyleSheet(badge_style("orange"))
+            self.mirror.set_offline_notice("화면 응답이 없어 다시 연결하는 중…")
+            self.statusBar().showMessage("연결 문제를 감지해 자동으로 복구하는 중입니다…", 8000)
+        elif codes:
+            from phonepilot.core.health import problem_text
+
+            self.conn_badge.setText("⚠ " + problem_text(codes[0]))
+            self.conn_badge.setToolTip("감지한 문제: " + ", ".join(problem_text(c) for c in codes))
+            self.conn_badge.setStyleSheet(badge_style("orange"))
+        else:
+            self._set_conn(state, detail)  # healthy again: the normal 'connected' badge
+
+    def check_health(self) -> None:
+        self.device_panel.health_status.setText("점검 중…")
+        self._core_task_then(self.runtime.check_health(), "연결 점검 실패", self.device_panel.set_health)
+
+    def reconnect_device(self) -> None:
+        """[다시 연결]: replace the session even if it still looks connected (a frozen stream)."""
+        if self.runtime.device is None:
+            self.connect_device(start_mcp=False)
+            return
+        self._set_conn("RECONNECTING", "manual")
+        self._core_task_then(self.runtime.reconnect_session("manual"), "다시 연결 실패",
+                             lambda ok: self.statusBar().showMessage("다시 연결했습니다" if ok else "다시 연결하지 못했습니다", 6000))
+
     def _ev_transfer(self, data: dict[str, Any]) -> None:
         if not data.get("done"):
             text = f"보내는 중 {data['index']}/{data['total']}: {data['name']}"
@@ -888,6 +925,7 @@ class MainWindow(QMainWindow):
 
     # =============================================================== status
     def _set_conn(self, state: str, detail: str) -> None:
+        self._conn = (state, detail)
         text, color = CONN_LABELS.get(state, (state, "gray"))
         if state == "RECONNECTING" and detail:
             text = f"{text} {detail}"
@@ -897,7 +935,8 @@ class MainWindow(QMainWindow):
         self.conn_badge.setToolTip(f"{text} ({detail})" if detail and state in ("FAILED", "UNAUTHORIZED") else text)
         self.conn_badge.setStyleSheet(badge_style(color))
         self.device_panel.set_field("state", f"{text} ({detail})" if detail and state == "FAILED" else text)
-        self.device_panel.reconnect_button.setEnabled(state in ("DISCONNECTED", "FAILED", "UNAUTHORIZED"))
+        # also while streaming: a frozen session that still looks connected must be replaceable by hand
+        self.device_panel.reconnect_button.setEnabled(state not in ("STARTING", "RECONNECTING", "STOPPING"))
         live = state == "STREAMING"
         for act in self._device_actions:  # nothing to send them to without a stream; greyed out instead of silently ignored
             act.setEnabled(live)
@@ -946,6 +985,10 @@ class MainWindow(QMainWindow):
         fw, fh = self.mirror.frame_size
         self.res_label.setText(f"{fw}×{fh}" if fw else "")
         self.fps_label.setText(f"{self.mirror.tick_fps()} fps")
+        dev = self.runtime.device
+        if dev is not None and self.runtime.state.value == "STREAMING" and self.mirror._device is not dev:  # noqa: SLF001
+            log.warning("mirror was bound to an old session; re-attaching")
+            self.attach_stack()
         if stack is not None:
             self.approvals_panel.set_history(list(stack.approvals.history))
 
@@ -1044,7 +1087,10 @@ class MainWindow(QMainWindow):
             return  # one at a time: a crash loop must not stack dialogs
         dev = self.runtime.device
         device = f"{dev.info.manufacturer} {dev.info.model} (Android {dev.info.release})" if dev is not None else ""
-        title, body = build_report(summary or "사용자 신고", details=details, device=device, connection=self.conn_badge.text(), log_lines=list(RING))
+        incidents = [i.summary() for i in self.runtime.incidents.recent(10)]
+        title, body = build_report(
+            summary or "사용자 신고", details=details, device=device, connection=self.conn_badge.text(), log_lines=list(RING), incidents=incidents
+        )
         dlg = ReportDialog(summary, issue_url(self.runtime.config.update.repo, title, body), self, crashed=crashed)
         self._report_dialog = dlg
         dlg.show()

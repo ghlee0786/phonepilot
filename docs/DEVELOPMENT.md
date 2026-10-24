@@ -53,13 +53,14 @@ PRD 조항 번호(FR-xxx 기능 요구, SEC-xxx 보안, TC-xxx 테스트 케이�
 | `real_device.py` | `RealDevice(DeviceBackend)`: 위를 묶고 디코더·FrameBus 연결, `dump_ui`(uiautomator dump → /sdcard 임시 파일 즉시 삭제), `foreground`(dumpsys activity), `shell`, `push`. `VideoSettings` |
 | `adb.py` | `DeviceManager`(번들 adb 서버, 기기 목록), `collect_profile`(모델·Android·해상도·밀도·IME·내비 방식; 기기 키는 `ro.serialno`), `preflight` |
 | `wireless.py` | 무선 디버깅: QR(`WIFI:T:ADB;S:<service>;P:<pw>;;`) 페어링 → mDNS `_adb-tls-pairing._tcp` 발견 → `adb pair`; 코드 페어링; `_adb-tls-connect._tcp`로 재연결. `validate_host_port`는 사설 IP만 허용(공인 IP 차단) |
-| `decoder.py` | `VideoDecoder` 스레드: H.264 HW 디코드(D3D11VA, 실패 시 SW), SLICE 스레딩 + LOW_DELAY(프레임 스레딩은 여러 프레임을 붙잡아 지연↑) |
+| `decoder.py` | `VideoDecoder` 스레드: H.264 HW 디코드(D3D11VA, 실패 시 SW), SLICE 스레딩 + LOW_DELAY(프레임 스레딩은 여러 프레임을 붙잡아 지연↑). 모든 패킷을 디코딩하지만 RGB 변환은 최신 프레임만(대기열이 비었을 때). 대기열(120)이 넘치면 키 프레임까지 버리고 `waiting_key_since`를 기록 |
+| `health.py` | `HealthMonitor`(NFR-REL-006~009): 2초 점검(`DeviceHealth`: 연결·디코더·조작 채널·키 프레임 대기·입력 후 무프레임), 15초 `probe()`(서버 프로세스·forward), 30초 하트비트 키 프레임. 복구 사다리: `request_keyframe()` → `reconnect_session()` ×2 → adb 재시작 → 포기. `IncidentLog`(메모리 + `incidents.jsonl`, 코드만) |
 | `framebus.py` | 최신 프레임 보관 + 구독 |
 | `gesture.py` | 결정론적 제스처 합성: `tap/double_tap/long_press/swipe/precise_scroll/fling/drag/pinch` → `TouchStep` 목록. cubic-bezier 이징(제어점 파라미터화). 무작위 지터 없음(의도) |
 | `calibration.py` | 제스처 프로파일(FR-INP-035~039): 사용자가 미러 창에서 한 탭·길게 누르기·스와이프를 `CalibrationRecorder`가 기록 → `measure()` → `build_profile()`이 중앙값·클램프로 `GestureProfile` 생성 → `ProfileStore`(`gesture_profiles.yaml`, 기기 키별). 정착 시간은 "최종 위치 1px 이내 도착" 기준 |
 | `coords.py` | 창↔프레임↔기기 좌표, 비율 유지 레터박스(`fit_rect`), 0~1000 정규화 |
 | `arbiter.py` | 위 2장 |
-| `device.py` | `DeviceBackend` ABC: `send_control`, `dump_ui`, `shell`, `foreground`, `push`, `display_size`, `frame_size`, `framebus`, 좌표 변환 |
+| `device.py` | `DeviceBackend` ABC: `send_control`, `dump_ui`, `shell`, `foreground`, `push`, `display_size`, `frame_size`, `framebus`, 좌표 변환, 상태(`health()`, `request_keyframe()`, `probe()`) |
 
 ### observe/ — 화면 이해
 | 파일 | 역할 |
@@ -182,6 +183,8 @@ PRD 조항 번호(FR-xxx 기능 요구, SEC-xxx 보안, TC-xxx 테스트 케이�
 | MCP 도구가 안 보임 | 앱 미실행 상태로 Claude 세션 시작 → 앱 실행 후 `/mcp` 재연결 |
 | 401 Unauthorized(HTTP 직결) | 앱 재시작으로 토큰 바뀜 → stdio 중계기 사용 또는 `mcp.token_fixed: true` |
 | pyproject 파싱 오류 | UTF-8 BOM 제거 |
+| 화면이 멈춤(폰은 정상) | 기기 탭 [연결 상태]의 최근 장애 확인. 키 프레임 대기·입력 후 무프레임은 2초 안에 키 프레임 요청으로, 서버·포트·디코더·조작 채널 문제는 재연결로 자동 복구된다. 수동으로는 [다시 연결](연결된 상태에서도 가능) |
+| 다른 PhonePilot/scrcpy와 같이 쓸 때 끊김 | forward는 `norebind`로 잡고, 종료 정리는 다른 세션이 쓰는 서버 jar를 지우지 않는다. 강제 종료된 세션이 남긴 forward는 다음 연결 때 정리된다 |
 
 ## 8. 결정 기록
 
@@ -195,6 +198,7 @@ PRD 조항 번호(FR-xxx 기능 요구, SEC-xxx 보안, TC-xxx 테스트 케이�
 | 2026-10-12 | 무선 디버깅은 QR 페어링 우선(코드 페어링 보조), 사설 IP만 | 사용자가 "추천 방향" 선택. 공용망 노출 방지 |
 | 2026-10-12 | 투자는 공식 API + 승인형 주문만, 출금 도구 없음, KIS 기본 모의 | 금융 앱 화면 자동화·무인 매매 위험 |
 | 2026-10-12 | MCP는 HTTP 서버(앱 내부) + stdio 중계기, Claude Code는 중계기 사용 | 앱 재시작마다 토큰이 바뀌어도 세션 유지 |
+| 2026-10-24 | 연결 감시기 + 단계적 자가 복구 + 장애 기록(NFR-REL-006~010) | 실기기에서 빠른 스크롤 중 디코더가 밀려 키 프레임 대기로 수십 분 멈춘 사례. 상태 표시가 '연결됨'인데 실제로는 끊긴 상태를 사람이 알 수 없었음 |
 
 ## 9. 남은 일
 

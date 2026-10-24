@@ -101,6 +101,11 @@ class IntegrationsConfig(BaseModel):
     kis: IntegrationToggle = Field(default_factory=IntegrationToggle)
 
 
+class TransferConfig(BaseModel):
+    # drag & drop onto the mirror copies files here (shared storage only, FR-INP-053)
+    drop_dir: str = "/sdcard/Download"
+
+
 class UpdateConfig(BaseModel):
     # the public code repository; CI publishes tagged releases there (.github/workflows/release.yml)
     repo: str = "ghlee0786/phonepilot"
@@ -120,6 +125,7 @@ class Config(BaseModel):
     recovery_vault: VaultConfig = Field(default_factory=VaultConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
     update: UpdateConfig = Field(default_factory=UpdateConfig)
+    transfer: TransferConfig = Field(default_factory=TransferConfig)
     allowed_push_dirs: list[str] = Field(default_factory=lambda: ["%USERPROFILE%/Documents/PhonePilot-Assets"])
 
 

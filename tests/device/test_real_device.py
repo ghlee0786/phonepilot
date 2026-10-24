@@ -52,8 +52,9 @@ def test_input_and_ui_tree_tc_dev_02_03(real):
     async def flow():
         await arb.ai_key(p.Keycode.HOME)
         await asyncio.sleep(1.0)
-        await dev.shell("am start -a android.settings.SETTINGS")
-        await asyncio.sleep(1.5)
+        await dev.shell("am start -S -n com.android.settings/.Settings")  # fresh, scrolled to the top
+        await asyncio.sleep(2.0)
+        await obs.wait_stable(5)  # a cold start keeps drawing for a moment
         o = await obs.observe()
         assert o.package == "com.android.settings", o.package
         assert len(o.elements) >= 5 and any(e.label for e in o.elements)

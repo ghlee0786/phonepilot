@@ -536,7 +536,7 @@ def test_help_is_behind_question_marks(qtbot, window: MainWindow) -> None:  # no
 
     panel = window.device_panel
     buttons = panel.findChildren(HelpButton)
-    assert len(buttons) == 3  # wireless, calibration, task recording
+    assert len(buttons) == 4  # wireless, calibration, task recording, file drop
     assert not [lbl for lbl in panel.findChildren(QLabel) if lbl.objectName() == "helpText" and len(lbl.text()) > 40]
     b = next(x for x in buttons if "보정 시작" in x.help_text)
     qtbot.mouseClick(b, Qt.MouseButton.LeftButton)

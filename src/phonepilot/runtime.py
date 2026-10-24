@@ -7,6 +7,7 @@ import asyncio
 import concurrent.futures
 import logging
 import threading
+import time
 from collections.abc import Awaitable, Callable, Coroutine
 from enum import Enum
 from pathlib import Path
@@ -462,6 +463,89 @@ class CoreRuntime:
         self.emit("task_recording", {"active": False, **result})
         return result
 
+    # ------------------------------------------------------- file drop (FR-INP-053/054)
+    def set_drop_dir(self, remote_dir: str) -> str:
+        """Change where dropped files go. Shared storage only, so a drop can never write into app or system folders."""
+        from phonepilot.config import save_config
+
+        d = "/" + remote_dir.strip().strip("/")
+        if not (d == "/sdcard" or d.startswith(("/sdcard/", "/storage/"))) or ".." in d.split("/"):
+            raise PhonePilotError("POLICY_BLOCKED", "폰의 공용 저장소(/sdcard/...) 안의 폴더만 지정할 수 있습니다")
+        self.config.transfer.drop_dir = d
+        save_config(self.config)
+        return d
+
+    @staticmethod
+    def _drop_items(paths: list[str]) -> list[tuple[Path, str]]:
+        """(local file, path relative to the drop folder). A dropped folder keeps its own name and subfolders."""
+        out: list[tuple[Path, str]] = []
+        for raw in paths:
+            p = Path(raw)
+            if p.is_file():
+                out.append((p, p.name))
+            elif p.is_dir():
+                out += [(f, f.relative_to(p.parent).as_posix()) for f in sorted(p.rglob("*")) if f.is_file()]
+        return out
+
+    async def push_dropped(self, paths: list[str]) -> dict[str, Any]:
+        """Copy files the person dropped on the mirror into the drop folder. They are the person's files, so unlike
+        AI pushes they are kept when the session ends. Existing names get a ' (n)' suffix instead of being overwritten."""
+        import shlex
+
+        from phonepilot.agent.timeline import TimelineEvent
+
+        if self.device is None or self.stack is None:
+            raise PhonePilotError("DEVICE_NOT_FOUND", "기기가 연결되어 있지 않습니다")
+        items = self._drop_items(paths)
+        if not items:
+            raise PhonePilotError("ELEMENT_NOT_FOUND", "보낼 파일이 없습니다")
+        base = self.config.transfer.drop_dir.rstrip("/")
+        done: list[str] = []
+        for i, (local, rel) in enumerate(items, 1):
+            self.emit("transfer", {"index": i, "total": len(items), "name": rel, "done": False})
+            remote = await self._free_remote_path(f"{base}/{rel}")
+            parent = remote.rsplit("/", 1)[0]
+            t0 = time.monotonic()
+            await self.device.shell(f"mkdir -p {shlex.quote(parent)}")
+            await self.device.push(str(local), remote)
+            await self.device.shell(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d {shlex.quote('file://' + remote)}")
+            self.stack.timeline.add(TimelineEvent("human", "push_file", local.name, "ALLOW", "ok", base, int((time.monotonic() - t0) * 1000)))
+            done.append(remote)
+        result = {"count": len(done), "remote_dir": base, "files": done}
+        self.emit("transfer", {"index": len(done), "total": len(items), "done": True, **result})
+        return result
+
+    async def _free_remote_path(self, remote: str) -> str:
+        import shlex
+
+        stem, dot, ext = remote.rpartition(".") if "." in remote.rsplit("/", 1)[-1] else (remote, "", "")
+        candidate, n = remote, 1
+        while (await self.device.shell(f"[ -e {shlex.quote(candidate)} ] && echo y || echo n")).strip() == "y":
+            candidate = f"{stem} ({n}){dot}{ext}"
+            n += 1
+        return candidate
+
+    async def install_dropped_apk(self, path: str) -> dict[str, Any]:
+        """FR-INP-054: the person confirmed in the PhonePilot window; the AI's install_apk tool keeps its approval gate."""
+        from phonepilot.agent.timeline import TimelineEvent
+
+        p = Path(path)
+        if self.device is None or self.stack is None:
+            raise PhonePilotError("DEVICE_NOT_FOUND", "기기가 연결되어 있지 않습니다")
+        if not p.is_file() or p.suffix.lower() != ".apk":
+            raise PhonePilotError("POLICY_BLOCKED", "APK 파일이 아닙니다")
+        remote = f"/data/local/tmp/pp_drop_{int(time.time())}.apk"
+        await self.device.push(str(p), remote)
+        try:
+            out = await self.device.shell(f"pm install -r {remote}", timeout=180)
+        finally:
+            await self.device.shell(f"rm -f {remote}")
+        ok = "Success" in out
+        self.stack.timeline.add(TimelineEvent("human", "install_apk", p.name, "ALLOW", "ok" if ok else "failed", out.strip()[:120]))
+        if not ok:
+            raise PhonePilotError("DEVICE_OFFLINE", f"설치 실패: {out.strip()[:200]}")
+        return {"installed": p.name}
+
     def _rebind(self, device: DeviceBackend) -> None:
         assert self.stack is not None
         s = self.stack
@@ -611,7 +695,11 @@ class CoreRuntime:
             if self.config.connection.remove_server_on_exit:
 
                 async def rm_server() -> None:
-                    await device.shell("rm -f /data/local/tmp/phonepilot-server.jar")
+                    # another PhonePilot window (or an installed copy) may still be streaming from the same jar
+                    own = getattr(getattr(device, "_server", None), "scid", None)
+                    others = await device.shell("ps -A -o ARGS | grep 'com.genymobile.scrcpy.Server' | grep -v grep")
+                    if not [ln for ln in others.splitlines() if own is None or f"scid={own:08x}" not in ln]:
+                        await device.shell("rm -f /data/local/tmp/phonepilot-server.jar")
 
                 cleanup.add("서버 파일 삭제", rm_server)
 

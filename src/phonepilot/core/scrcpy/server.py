@@ -82,7 +82,8 @@ class ScrcpyServer:
     def forward(self) -> int:
         for port in range(27183, 27300):
             try:
-                self.device.forward(f"tcp:{port}", f"localabstract:{p.socket_name(self.scid)}")
+                # norebind: never take over a port another PhonePilot or scrcpy session is using
+                self.device.forward(f"tcp:{port}", f"localabstract:{p.socket_name(self.scid)}", norebind=True)
                 self.port = port
                 return port
             except Exception:  # noqa: BLE001 - port in use, try the next

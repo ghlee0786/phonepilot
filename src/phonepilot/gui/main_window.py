@@ -265,6 +265,8 @@ class MainWindow(QMainWindow):
 
         self.mirror.frameSizeChanged.connect(self._on_frame_size)
         self.mirror.escapeInFullscreen.connect(self.exit_fullscreen)
+        self.mirror.filesDropped.connect(self.on_files_dropped)
+        self.mirror.drop_target = self.runtime.config.transfer.drop_dir
         self.mirror.fullscreenToggleKey.connect(self.toggle_fullscreen)
         self.bridge.event.connect(self._on_event)
         runtime.listeners.append(self.bridge.forward)
@@ -324,6 +326,8 @@ class MainWindow(QMainWindow):
         self.device_panel.recordStart.connect(self.start_task_recording)
         self.device_panel.recordFinish.connect(self.finish_task_recording)
         self.device_panel.recordCancel.connect(self.cancel_task_recording)
+        self.device_panel.changeDropDir.connect(self.change_drop_dir)
+        self.device_panel.drop_dir.setText(self.runtime.config.transfer.drop_dir)
         self.device_panel.checkUpdate.connect(lambda: self.check_for_update(manual=True))
         self.device_panel.reportProblem.connect(lambda: self.report_problem())
         self._update_dialog: UpdateDialog | None = None
@@ -756,6 +760,76 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage("기록된 동작이 없어 저장하지 않았습니다", 6000)
+
+    # ------------------------------------------------------- file drop (FR-INP-053/054)
+    def on_files_dropped(self, paths: list[str]) -> None:
+        apks = [x for x in paths if x.lower().endswith(".apk")]
+        if apks and len(apks) == len(paths):
+            for apk in apks:
+                choice = QMessageBox.question(
+                    self,
+                    "APK 설치",
+                    f"'{Path(apk).name}'을(를) 폰에 설치할까요?\n[아니요]를 누르면 설치하지 않고 파일로만 복사합니다.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if choice == QMessageBox.StandardButton.Yes:
+                    self.statusBar().showMessage(f"설치 중: {Path(apk).name}…")
+                    self._core_task_then(self.runtime.install_dropped_apk(apk), "APK 설치 실패",
+                                         lambda r: self.statusBar().showMessage(f"설치 완료: {r['installed']}", 6000))
+                elif choice == QMessageBox.StandardButton.No:
+                    self._push_files([apk])
+            return
+        self._push_files(paths)
+
+    def _push_files(self, paths: list[str]) -> None:
+        self.device_panel.drop_status.setVisible(True)
+        self.device_panel.drop_status.setText("보내는 중…")
+        self._core_task_then(self.runtime.push_dropped(paths), "파일 보내기 실패", self._pushed)
+
+    def _pushed(self, res: dict[str, Any]) -> None:
+        msg = f"{res['count']}개 파일을 폰의 {res['remote_dir']}에 복사했습니다"
+        self.device_panel.drop_status.setText(msg)
+        self.statusBar().showMessage(msg, 8000)
+
+    def _ev_transfer(self, data: dict[str, Any]) -> None:
+        if not data.get("done"):
+            text = f"보내는 중 {data['index']}/{data['total']}: {data['name']}"
+            self.device_panel.drop_status.setVisible(True)
+            self.device_panel.drop_status.setText(text)
+            self.statusBar().showMessage(text)
+
+    def change_drop_dir(self) -> None:
+        cur = self.runtime.config.transfer.drop_dir
+        new, ok = QInputDialog.getText(self, "파일 보내기 폴더", "폰의 폴더 (/sdcard/...):", text=cur)
+        if not ok or not new.strip() or new.strip() == cur:
+            return
+        try:
+            d = self.runtime.set_drop_dir(new)
+        except PhonePilotError as e:
+            QMessageBox.warning(self, "파일 보내기 폴더", e.message)
+            return
+        self.device_panel.drop_dir.setText(d)
+        self.mirror.drop_target = d
+        self.statusBar().showMessage(f"이제 드롭한 파일은 {d}로 복사됩니다", 6000)
+
+    def _core_task_then(self, coro: Any, error_title: str, on_ok: Callable[[Any], None]) -> None:
+        """Run on the core loop; report errors like _core_task, and hand the result to on_ok in the GUI thread."""
+        try:
+            fut = self.runtime.call(coro)
+        except RuntimeError:
+            coro.close()
+            return
+
+        def done(f: concurrent.futures.Future[Any]) -> None:
+            exc = f.exception() if not f.cancelled() else None
+            if exc is not None:
+                self.bridge.post(lambda: self._show_error(error_title, exc))
+            elif not f.cancelled():
+                result = f.result()
+                self.bridge.post(lambda: on_ok(result))
+
+        fut.add_done_callback(done)
 
     def cancel_task_recording(self) -> None:
         self._record_timer.stop()

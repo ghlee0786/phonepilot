@@ -16,6 +16,9 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDropEvent,
     QFocusEvent,
     QFont,
     QGuiApplication,
@@ -91,6 +94,7 @@ class MirrorView(QWidget):
     frameSizeChanged = Signal(int, int)
     escapeInFullscreen = Signal()
     fullscreenToggleKey = Signal()
+    filesDropped = Signal(list)  # local file/folder paths dropped on the phone screen (FR-INP-053)
 
     def __init__(self, runtime: CoreRuntime, pump: InputPump, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,6 +105,9 @@ class MirrorView(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setMouseTracking(False)
         self.setMinimumSize(120, 160)
+        self.setAcceptDrops(True)
+        self.drop_hint = ""  # shown while files are dragged over the screen
+        self.drop_target = "/sdcard/Download"
 
         self._device: DeviceBackend | None = None
         self._unsubscribe: Callable[[], None] | None = None
@@ -511,8 +518,48 @@ class MirrorView(QWidget):
             self._draw_notice(painter, QRectF(self.rect()), self.offline_notice or "화면을 기다리는 중…")
         if self.preedit:
             self._draw_preedit(painter, target)
+        if self.drop_hint:
+            painter.setPen(QPen(QColor("#3b82f6"), 3, Qt.PenStyle.DashLine))
+            painter.setBrush(QColor(59, 130, 246, 40))
+            painter.drawRoundedRect(target.adjusted(6, 6, -6, -6), 12, 12)
+            self._draw_notice(painter, target, self.drop_hint)
         self._draw_border(painter)
         painter.end()
+
+    # ---------------------------------------------------------------- file drop
+    @staticmethod
+    def _local_paths(e: QDragEnterEvent | QDropEvent) -> list[str]:
+        md = e.mimeData()
+        if not md.hasUrls():
+            return []
+        return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and u.toLocalFile()]
+
+    def dragEnterEvent(self, e: QDragEnterEvent) -> None:
+        paths = self._local_paths(e)
+        if not paths or self._device is None:
+            e.ignore()
+            return
+        apks = [x for x in paths if x.lower().endswith(".apk")]
+        if apks and len(apks) == len(paths):
+            self.drop_hint = "놓으면 APK 설치 여부를 묻습니다"
+        else:
+            self.drop_hint = f"놓으면 폰의 {self.drop_target} 폴더로 복사합니다 ({len(paths)}개)"
+        e.acceptProposedAction()
+        self.update()
+
+    def dragLeaveEvent(self, _e: QDragLeaveEvent) -> None:
+        self.drop_hint = ""
+        self.update()
+
+    def dropEvent(self, e: QDropEvent) -> None:
+        self.drop_hint = ""
+        self.update()
+        paths = self._local_paths(e)
+        if not paths:
+            e.ignore()
+            return
+        e.acceptProposedAction()
+        self.filesDropped.emit(paths)
 
     def _draw_notice(self, painter: QPainter, area: QRectF, text: str) -> None:
         f = QFont(self.font())

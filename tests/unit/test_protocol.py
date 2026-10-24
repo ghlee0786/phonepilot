@@ -96,3 +96,24 @@ def test_server_args_contains_version_and_scid():
     assert len(full) <= 13
     assert not any(a.startswith(("send_", "video=", "clipboard_autosync", "power_off")) for a in args)
     assert p.socket_name(0x1A2B3C4D) == "scrcpy_1a2b3c4d"
+
+
+def test_forward_never_takes_over_another_sessions_port():
+    """Two PhonePilot windows (or scrcpy) on one PC: a new session must skip a port that is already forwarded."""
+    from pathlib import Path
+
+    from phonepilot.core.scrcpy.server import ScrcpyServer
+
+    class Dev:
+        def __init__(self):
+            self.calls = []
+
+        def forward(self, local, remote, norebind=False):
+            self.calls.append((local, norebind))
+            if local == "tcp:27183":
+                raise RuntimeError("cannot rebind existing socket")  # held by the other session
+
+    dev = Dev()
+    srv = ScrcpyServer(dev, Path("x.jar"))
+    assert srv.forward() == 27184
+    assert all(norebind for _, norebind in dev.calls)

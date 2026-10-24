@@ -297,3 +297,82 @@ def test_s9_cancel_recording_saves_nothing(qtbot, window: MainWindow, runtime: C
     assert runtime.task_recorder is None and runtime.stack.arbiter.task_recorder is None
     assert not (tmp_path / "recordings").exists()
     assert window.device_panel.record_start_button.isEnabled()
+
+
+# ------------------------------------------------------------------ file drop (FR-INP-053/054)
+
+
+def drop_on_mirror(qtbot, window: MainWindow, paths: list) -> None:  # noqa: ANN001
+    from PySide6.QtCore import QMimeData, QPointF, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+
+    md = QMimeData()
+    md.setUrls([QUrl.fromLocalFile(str(x)) for x in paths])
+    pos = pt(window, 540, 1200)
+    enter = QDragEnterEvent(pos, Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    QApplication_send(window.mirror, enter)
+    assert window.mirror.drop_hint, "the screen should show where the files go"
+    drop = QDropEvent(QPointF(pos), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    QApplication_send(window.mirror, drop)
+    assert not window.mirror.drop_hint
+
+
+def QApplication_send(widget, event) -> None:  # noqa: ANN001, N802
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.sendEvent(widget, event)
+
+
+def test_s10_drop_files_and_folder_onto_the_phone(qtbot, window: MainWindow, runtime: CoreRuntime, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    dev: FakeDevice = runtime.device  # type: ignore[assignment]
+    dev.pushed.clear()
+    (tmp_path / "a.jpg").write_bytes(b"jpg")
+    folder = tmp_path / "trip"
+    (folder / "day1").mkdir(parents=True)
+    (folder / "day1" / "b.txt").write_text("b", encoding="utf-8")
+    dev.pushed["/sdcard/Download/a.jpg"] = b"already there"
+    drop_on_mirror(qtbot, window, [tmp_path / "a.jpg", folder])
+    qtbot.waitUntil(lambda: "복사했습니다" in window.device_panel.drop_status.text(), timeout=5000)
+    assert dev.pushed["/sdcard/Download/a (1).jpg"] == b"jpg"  # never overwrites the phone's file
+    assert dev.pushed["/sdcard/Download/a.jpg"] == b"already there"
+    assert dev.pushed["/sdcard/Download/trip/day1/b.txt"] == b"b"
+    assert any("MEDIA_SCANNER_SCAN_FILE" in c and "a (1).jpg" in c for c in dev.shell_log)
+    assert "/sdcard/Download/a (1).jpg" not in runtime.stack.tools.pushed_files  # the person's files stay after the session
+
+
+def test_s11_drop_folder_setting_is_limited_to_shared_storage(qtbot, window: MainWindow, runtime: CoreRuntime, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))  # set_drop_dir saves config.yaml
+    warned: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("/data/data/com.example", True))
+    qtbot.mouseClick(window.device_panel.drop_dir_button, Qt.MouseButton.LeftButton)
+    assert warned and runtime.config.transfer.drop_dir == "/sdcard/Download"
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("/sdcard/Pictures/PhonePilot/", True))
+    qtbot.mouseClick(window.device_panel.drop_dir_button, Qt.MouseButton.LeftButton)
+    try:
+        assert runtime.config.transfer.drop_dir == "/sdcard/Pictures/PhonePilot"
+        assert window.device_panel.drop_dir.text() == "/sdcard/Pictures/PhonePilot"
+        assert "drop_dir: /sdcard/Pictures/PhonePilot" in (tmp_path / "roaming" / "PhonePilot" / "config.yaml").read_text(encoding="utf-8")
+        dev: FakeDevice = runtime.device  # type: ignore[assignment]
+        (tmp_path / "c.png").write_bytes(b"png")
+        drop_on_mirror(qtbot, window, [tmp_path / "c.png"])
+        qtbot.waitUntil(lambda: "/sdcard/Pictures/PhonePilot/c.png" in dev.pushed, timeout=5000)
+    finally:
+        runtime.config.transfer.drop_dir = "/sdcard/Download"
+
+
+def test_s12_dropped_apk_asks_before_installing(qtbot, window: MainWindow, runtime: CoreRuntime, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    dev: FakeDevice = runtime.device  # type: ignore[assignment]
+    apk = tmp_path / "tool.apk"
+    apk.write_bytes(b"PK")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Cancel)
+    drop_on_mirror(qtbot, window, [apk])
+    qtbot.wait(300)
+    assert not any(c.startswith("pm install") for c in dev.shell_log[-5:])
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    drop_on_mirror(qtbot, window, [apk])
+    qtbot.waitUntil(lambda: any(c.startswith("pm install -r /data/local/tmp/pp_drop_") for c in dev.shell_log), timeout=5000)
+    qtbot.waitUntil(lambda: any(c.startswith("rm -f /data/local/tmp/pp_drop_") for c in dev.shell_log), timeout=5000)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
+    drop_on_mirror(qtbot, window, [apk])
+    qtbot.waitUntil(lambda: "/sdcard/Download/tool.apk" in dev.pushed, timeout=5000)  # copied, not installed

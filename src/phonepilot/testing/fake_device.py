@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shlex
 from dataclasses import dataclass, field
 from xml.sax.saxutils import quoteattr
 
@@ -263,6 +264,11 @@ class FakeDevice(DeviceBackend):
             return "\n".join(f"package:{pkg}" for pkg in sorted({s.package for s in self.screens.values()}))
         if "input_method" in cmd:
             return "mInputShown=" + ("true" if self.focus else "false")
+        if cmd.startswith("[ -e "):  # existence check before pushing a dropped file
+            path = shlex.split(cmd[2:].split("]", 1)[0])[1]
+            return "y" if path in self.pushed else "n"
+        if cmd.startswith("pm install"):
+            return "Success"
         for prefix, out in self.extra_shell.items():
             if cmd.startswith(prefix):
                 return out

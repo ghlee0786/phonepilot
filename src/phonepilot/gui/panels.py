@@ -301,6 +301,7 @@ class DevicePanel(QWidget):
     recordStart = Signal()
     recordFinish = Signal()
     recordCancel = Signal()
+    changeDropDir = Signal()
     checkUpdate = Signal()
     reportProblem = Signal()
 
@@ -433,6 +434,27 @@ class DevicePanel(QWidget):
         self.record_cancel_button.clicked.connect(self.recordCancel.emit)
         rl.addLayout(button_grid([self.record_start_button, self.record_finish_button], [self.record_cancel_button]))
         lay.addWidget(rec_box)
+
+        drop_box = HelpGroupBox(
+            "파일 보내기",
+            "PC의 파일이나 폴더를 폰 화면 위로 끌어다 놓으면 아래 폴더로 복사됩니다. 같은 이름이 있으면 덮어쓰지 않고 "
+            "'이름 (1)'로 저장합니다. 사진·영상은 갤러리에 바로 보이도록 미디어 스캔을 요청합니다.\n\n"
+            "APK만 끌어 놓으면 설치할지 묻습니다. 폴더는 폰의 공용 저장소(/sdcard/...) 안에서만 고를 수 있습니다.",
+        )
+        dl = QVBoxLayout(drop_box)
+        self.drop_dir = QLabel("/sdcard/Download")
+        self.drop_dir.setObjectName("monoValue")
+        self.drop_dir.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        dl.addWidget(self.drop_dir)
+        self.drop_status = QLabel("")
+        self.drop_status.setObjectName("metaText")
+        self.drop_status.setWordWrap(True)
+        self.drop_status.setVisible(False)
+        dl.addWidget(self.drop_status)
+        self.drop_dir_button = QPushButton(icon("open"), "폴더 변경")
+        self.drop_dir_button.clicked.connect(self.changeDropDir.emit)
+        dl.addLayout(button_grid([self.drop_dir_button]))
+        lay.addWidget(drop_box)
 
         pf_box = QGroupBox("사전 점검")
         pl = QVBoxLayout(pf_box)

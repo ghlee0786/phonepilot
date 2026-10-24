@@ -261,3 +261,24 @@ def test_d3_record_and_replay_in_settings(rt):  # noqa: ANN001
     assert swipes, "swipe step did not play"
     last_move = max(x.t_ms for x in swipes[0] if x.action is g.TouchAction.MOVE and (x.x, x.y) != (swipes[0][-1].x, swipes[0][-1].y))
     assert swipes[0][-1].t_ms - last_move >= prof.settle_ms * 0.8, "replayed swipe did not rest before lifting"
+
+
+# ------------------------------------------------------------ file drop (FR-INP-053)
+def test_d4_dropped_file_lands_in_the_phone_folder(rt, tmp_path):  # noqa: ANN001
+    name = f"phonepilot_drop_test_{int(time.time())}.txt"
+    local = tmp_path / name
+    local.write_text("PhonePilot drop test", encoding="utf-8")
+
+    async def go() -> tuple[dict, str, str]:
+        res = await rt.push_dropped([str(local)])
+        again = await rt.push_dropped([str(local)])  # same name -> kept side by side, not overwritten
+        listing = await rt.device.shell("ls /sdcard/Download")
+        content = await rt.device.shell(f"cat /sdcard/Download/{name}")
+        for f in res["files"] + again["files"]:
+            await rt.device.shell(f"rm -f '{f}'")
+        return res, again["files"][0], listing + "\n" + content
+
+    res, second, out = run(rt, go())
+    assert res["files"] == [f"/sdcard/Download/{name}"]
+    assert second == f"/sdcard/Download/{name[:-4]} (1).txt"
+    assert name in out and "PhonePilot drop test" in out

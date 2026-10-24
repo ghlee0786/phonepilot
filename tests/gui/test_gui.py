@@ -7,7 +7,7 @@ from urllib.parse import unquote_plus
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from phonepilot import update
 from phonepilot.agent.timeline import TimelineEvent
@@ -528,3 +528,19 @@ def test_wireless_code_dialog_rejects_bad_input(qtbot, window: MainWindow) -> No
     assert "사설 네트워크" in dlg.status.text()
     assert dlg.code.text() == ""  # the code is cleared right after use
     dlg.reject()
+
+
+def test_help_is_behind_question_marks(qtbot, window: MainWindow) -> None:  # noqa: ANN001
+    """Explanations live in balloons behind "?" buttons, not as paragraphs in the panels."""
+    from phonepilot.gui.help_popup import HelpButton
+
+    panel = window.device_panel
+    buttons = panel.findChildren(HelpButton)
+    assert len(buttons) == 3  # wireless, calibration, task recording
+    assert not [lbl for lbl in panel.findChildren(QLabel) if lbl.objectName() == "helpText" and len(lbl.text()) > 40]
+    b = next(x for x in buttons if "보정 시작" in x.help_text)
+    qtbot.mouseClick(b, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: b.balloon is not None and b.balloon.isVisible(), timeout=2000)
+    assert "보정 시작" in b.balloon.label.text()
+    b.balloon.close()
+    qtbot.waitUntil(lambda: b.balloon is None, timeout=2000)

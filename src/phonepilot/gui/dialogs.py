@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from phonepilot.gui.help_popup import HelpButton
 from phonepilot.security.approvals import ApprovalRequest, ApprovalResponse, HumanRequest
 
 CONFIRM_WORD = "승인"
@@ -262,7 +263,11 @@ class SkillInputsDialog(QDialog):
         desc = QLabel(str(skill.get("description", "")))
         desc.setWordWrap(True)
         lay.addWidget(desc)
-        lay.addWidget(QLabel("입력값 (한 줄에 하나, key=value). 비밀값은 .env 키 이름만 적으세요."))
+        head = QHBoxLayout()
+        head.addWidget(QLabel("입력값"))
+        head.addStretch(1)
+        head.addWidget(HelpButton("한 줄에 하나씩 key=value로 적습니다. 비밀값은 값이 아니라 .env 키 이름만 적으세요."))
+        lay.addLayout(head)
         lines = []
         for key, spec in (skill.get("inputs") or {}).items():
             default = spec.get("default") if isinstance(spec, dict) else None
@@ -302,14 +307,21 @@ class WirelessQrDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("PhonePilot — 무선 디버깅 QR 페어링")
         lay = QVBoxLayout(self)
-        steps = QLabel(
-            "1. 폰과 PC를 같은 Wi-Fi에 연결합니다.\n"
-            "2. 폰: 설정 → 개발자 옵션 → 무선 디버깅 켜기 → 'QR 코드로 기기 페어링'.\n"
-            "3. 아래 QR 코드를 폰으로 스캔하세요.\n"
-            "공용 Wi-Fi에서는 사용하지 마세요(같은 네트워크의 다른 기기가 ADB 포트에 접근할 수 있습니다)."
-        )
+        head = QHBoxLayout()
+        steps = QLabel("폰의 '무선 디버깅 → QR 코드로 기기 페어링'으로 스캔하세요.")
         steps.setWordWrap(True)
-        lay.addWidget(steps)
+        head.addWidget(steps, 1)
+        head.addWidget(
+            HelpButton(
+                "1. 폰과 PC를 같은 Wi-Fi에 연결합니다.\n"
+                "2. 폰: 설정 → 개발자 옵션 → 무선 디버깅 켜기 → 'QR 코드로 기기 페어링'.\n"
+                "3. 아래 QR 코드를 폰으로 스캔합니다.\n\n"
+                "공용 Wi-Fi에서는 사용하지 마세요(같은 네트워크의 다른 기기가 ADB 포트에 접근할 수 있습니다)."
+            ),
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
+        lay.addLayout(head)
         self.qr = QLabel()
         pix = QPixmap()
         pix.loadFromData(qr_png, "PNG")
@@ -458,16 +470,17 @@ class WirelessCodeDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("PhonePilot — 페어링 코드로 연결")
         lay = QVBoxLayout(self)
-        help_ = QLabel("폰: 개발자 옵션 → 무선 디버깅 → '페어링 코드로 기기 페어링'에 표시된 IP 주소·포트와 6자리 코드를 입력하세요.")
-        help_.setWordWrap(True)
-        lay.addWidget(help_)
         self.address = QLineEdit()
         self.address.setPlaceholderText("192.168.0.12:37123")
         self.code = QLineEdit()
         self.code.setPlaceholderText("123456")
         self.code.setMaxLength(6)
         self.code.setEchoMode(QLineEdit.EchoMode.Password)  # short-lived, but still a credential
-        lay.addWidget(QLabel("IP 주소:포트"))
+        head = QHBoxLayout()
+        head.addWidget(QLabel("IP 주소:포트"))
+        head.addStretch(1)
+        head.addWidget(HelpButton("폰: 개발자 옵션 → 무선 디버깅 → '페어링 코드로 기기 페어링'에 표시된 IP 주소·포트와 6자리 코드를 입력하세요."))
+        lay.addLayout(head)
         lay.addWidget(self.address)
         lay.addWidget(QLabel("페어링 코드"))
         lay.addWidget(self.code)

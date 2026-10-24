@@ -160,6 +160,9 @@ QGroupBox {{ background: {c['surface']}; border: 1px solid {c['border']}; border
 QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 4px; top: 0px; padding: 0 2px; color: {c['text_muted']}; font-size: 12px; font-weight: 700; }}
 QLabel#sectionLabel {{ color: {c['text_muted']}; font-size: 12px; font-weight: 700; padding: 6px 2px 2px 2px; }}
 QLabel#helpText, QLabel#metaText {{ color: {c['text_muted']}; }}
+QToolButton#helpButton {{ background: {c['surface_2']}; color: {c['text_muted']}; border: 1px solid {c['border_strong']}; border-radius: 10px; font-size: 11px; font-weight: 700; padding: 0; }}
+QToolButton#helpButton:hover {{ background: {c['primary']}; border-color: {c['primary']}; color: white; }}
+QLabel#helpBalloonText {{ color: {c['text']}; background: transparent; font-size: 12px; }}
 QLabel#fieldKey {{ color: {c['text_muted']}; }}
 QLabel#monoValue {{ font-family: {', '.join(f'"{f}"' for f in MONO_FAMILIES)}; }}
 

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from phonepilot import __version__
 from phonepilot.agent.timeline import TimelineEvent
+from phonepilot.gui.help_popup import HelpGroupBox
 from phonepilot.gui.theme import COLORS, icon
 from phonepilot.security.approvals import ApprovalRequest, ApprovalResponse
 
@@ -364,9 +365,12 @@ class DevicePanel(QWidget):
         al.addLayout(button_grid([self.update_button, self.report_button]))
         lay.addWidget(app_box)
 
-        wl_box = QGroupBox("무선 연결 (Android 11+)")
+        wl_box = HelpGroupBox(
+            "무선 연결 (Android 11+)",
+            "케이블 없이 같은 Wi-Fi로 연결합니다. 처음 한 번 페어링하면 이후에는 자동으로 찾아 연결합니다.\n"
+            "공용 Wi-Fi에서는 쓰지 마세요.",
+        )
         wl = QVBoxLayout(wl_box)
-        wl.addWidget(help_label("케이블 없이 같은 Wi-Fi로 연결합니다. 처음 한 번 페어링하면 이후에는 자동으로 찾아 연결합니다."))
         self.wireless_qr_button = QPushButton(icon("qr"), "QR 페어링")
         self.wireless_code_button = QPushButton(icon("keypad"), "코드 페어링")
         self.wireless_scan_button = QPushButton(icon("wifi"), "페어링된 기기 찾기")
@@ -380,13 +384,13 @@ class DevicePanel(QWidget):
         wl.addWidget(self.wireless_status)
         lay.addWidget(wl_box)
 
-        cal_box = QGroupBox("제스처 보정")
-        cl = QVBoxLayout(cal_box)
-        self.calib_help = help_label(
+        cal_box = HelpGroupBox(
+            "제스처 보정",
             "[보정 시작]을 누른 뒤 미러 화면에서 평소처럼 탭 5회, 길게 누르기 3회, 위아래 스와이프 5회 이상을 해 주세요. "
-            "AI 제스처의 기본 속도·누름 시간·곡률이 내 손에 맞춰집니다(무작위 흔들림 없음)."
+            "AI 제스처의 기본 속도·누름 시간·곡률이 내 손에 맞춰집니다(무작위 흔들림 없음).\n\n"
+            "[유사도 보기]: 마지막 보정 기록과 AI 제스처를 같은 기준으로 재서 점수로 보여 줍니다.",
         )
-        cl.addWidget(self.calib_help)
+        cl = QVBoxLayout(cal_box)
         self.calib_counts = QLabel("기록: -")
         cl.addWidget(self.calib_counts)
         self.calib_profile = QLabel("프로필: 기본값")
@@ -404,20 +408,17 @@ class DevicePanel(QWidget):
         self.calib_reset_button.clicked.connect(self.calibReset.emit)
         self.calib_fidelity_button = QPushButton(icon("chart", COLORS["text_muted"]), "유사도 보기")
         self.calib_fidelity_button.setObjectName("ghostButton")
-        self.calib_fidelity_button.setToolTip("마지막 보정 기록과 AI 제스처를 같은 기준으로 재서 비교합니다")
         self.calib_fidelity_button.clicked.connect(self.calibFidelity.emit)
         cl.addLayout(button_grid([self.calib_start_button, self.calib_finish_button], [self.calib_reset_button, self.calib_fidelity_button]))
         lay.addWidget(cal_box)
 
-        rec_box = QGroupBox("작업 녹화")
-        rl = QVBoxLayout(rec_box)
-        rl.addWidget(
-            help_label(
-                "[녹화 시작]을 누르고 미러 화면에서 작업을 한 번 직접 해 주세요. 누른 버튼·스와이프·뒤로가기·기다린 시간이 "
-                "스킬로 저장되고, 워크플로 탭에서 다시 실행하면 내 제스처 프로필로 같은 순서를 따라 합니다. "
-                "입력한 글자는 저장하지 않고 실행할 때 다시 물어봅니다."
-            )
+        rec_box = HelpGroupBox(
+            "작업 녹화",
+            "[녹화 시작]을 누르고 미러 화면에서 작업을 한 번 직접 해 주세요. 누른 버튼·스와이프·뒤로가기·기다린 시간이 "
+            "스킬로 저장되고, 워크플로 탭에서 다시 실행하면 내 제스처 프로필로 같은 순서를 따라 합니다.\n\n"
+            "입력한 글자는 저장하지 않고 실행할 때 다시 물어봅니다. 녹화는 이 PC에만 저장됩니다.",
         )
+        rl = QVBoxLayout(rec_box)
         self.record_counts = QLabel("기록: -")
         rl.addWidget(self.record_counts)
         self.record_start_button = QPushButton(icon("record", "#ffffff"), "녹화 시작")

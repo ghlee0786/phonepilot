@@ -1,6 +1,6 @@
 [project]
 name = "phonepilot"
-version = "0.1.6"
+version = "0.1.7"
 description = "AI-assisted Android mirroring and control platform with secret isolation and human approval gates"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -62,7 +62,7 @@ AI가 결제, 업로드, 좋아요·구독, 보안 설정처럼 되돌리기 어
 - AI는 도구 57개로 화면 읽기(`observe`), 누르기(`tap`), 입력(`type_text`), 스크롤, 앱 실행, 워크플로 실행을 합니다.
 - 비밀번호는 `type_secret(ref="GOOGLE_MAIN_PASSWORD")`처럼 **이름으로만** 입력을 요청합니다. 값은 PhonePilot이 직접 칩니다.
 
-> 상태: v0.1.6. 자동 테스트 327개 + 실기기 테스트 10개 통과. 실기기(Galaxy S21+ Android 15, Galaxy Note20 Android 13)에서 미러링, MCP 화면 읽기, 제스처 보정, 작업 녹화→재생을 확인했습니다.
+> 상태: v0.1.7. 자동 테스트 327개 + 실기기 테스트 10개 통과. 실기기(Galaxy S21+ Android 15, Galaxy Note20 Android 13)에서 미러링, MCP 화면 읽기, 제스처 보정, 작업 녹화→재생을 확인했습니다.
 
 ---
 

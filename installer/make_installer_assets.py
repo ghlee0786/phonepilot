@@ -9,14 +9,20 @@ Writes 24-bit BMPs (Inno Setup's native format):
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+# The offscreen platform (CI) has an empty font database on Windows unless pointed at the system fonts:
+# every Korean string then renders as tofu boxes in the wizard images.
+if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not os.environ.get("QT_QPA_FONTDIR"):
+    os.environ["QT_QPA_FONTDIR"] = str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts")
+
 from PySide6.QtCore import QRectF, Qt, QTimer  # noqa: E402
-from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QLinearGradient, QPainter  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
 from phonepilot.agent.timeline import TimelineEvent  # noqa: E402
@@ -100,6 +106,8 @@ def main() -> None:
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     app = ensure_app()
+    if "Malgun Gothic" not in QFontDatabase.families():
+        sys.exit("Korean font 'Malgun Gothic' not found: the wizard images would show tofu boxes (set QT_QPA_FONTDIR)")
     rt = CoreRuntime(demo=True)
     rt.start()
     rt.call_sync(rt.connect())

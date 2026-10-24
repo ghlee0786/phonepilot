@@ -1,12 +1,12 @@
-"""Approval dialog (PRD 13.3), human hand-off banner (18.3) and the skill inputs dialog."""
+"""Approval dialog (PRD 13.3), human hand-off banner (18.3), skill inputs, wireless pairing, update and problem-report dialogs."""
 
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -16,7 +16,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -44,17 +46,18 @@ class ApprovalDialog(QDialog):
         # non-modal (FR-HIL-002): the person may still use the phone while deciding; AI input is blocked by the core
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(460)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(10)
         if req.high:
-            band = QLabel("⚠ 돈 또는 계정 보안에 영향을 주는 행동입니다")
+            band = QLabel("돈 또는 계정 보안에 영향을 주는 행동입니다")
             band.setObjectName("highBand")
-            band.setStyleSheet("background:#b91c1c;color:white;font-weight:bold;padding:8px;")
             lay.addWidget(band)
         title = QLabel(req.title or "AI가 다음 행동을 요청합니다")
+        title.setObjectName("dialogTitle")
         title.setWordWrap(True)
-        title.setStyleSheet("font-size:15px;font-weight:bold;")
         lay.addWidget(title)
 
         if req.preview_png:
@@ -63,7 +66,7 @@ class ApprovalDialog(QDialog):
                 prev = QLabel()
                 prev.setPixmap(pix.scaled(380, 380, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
                 prev.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                prev.setStyleSheet("background:#000;")
+                prev.setObjectName("previewImage")
                 lay.addWidget(prev)
 
         summary = QLabel(req.summary)
@@ -86,13 +89,13 @@ class ApprovalDialog(QDialog):
             meta += " · 근거: " + ", ".join(str(r) for r in reasons)
         meta_lbl = QLabel(meta)
         meta_lbl.setWordWrap(True)
-        meta_lbl.setStyleSheet("color:#6b7280;")
+        meta_lbl.setObjectName("metaText")
         lay.addWidget(meta_lbl)
 
         amount = req.expected_amount or (d.amounts[0] if d.amounts else None)
         if req.high:
             amt = QLabel(f"감지 금액: {amount}" if amount else "감지 금액: 확인 불가")
-            amt.setStyleSheet("font-weight:bold;color:#b91c1c;")
+            amt.setObjectName("amountLabel")
             lay.addWidget(amt)
 
         self.confirm_edit: QLineEdit | None = None
@@ -111,13 +114,17 @@ class ApprovalDialog(QDialog):
         lay.addWidget(self.stop_all_box)
 
         self.countdown = QLabel()
-        self.countdown.setStyleSheet("color:#6b7280;")
+        self.countdown.setObjectName("countdown")
         lay.addWidget(self.countdown)
 
         row = QHBoxLayout()
         row.addStretch(1)
         self.deny_button = QPushButton("거부")
         self.approve_button = QPushButton("승인")
+        # approving a money/security action is the destructive choice; deny stays the default button
+        self.approve_button.setObjectName("dangerButton" if req.high else "primaryButton")
+        for b in (self.deny_button, self.approve_button):
+            b.setMinimumWidth(96)
         self.approve_button.setAutoDefault(False)
         self.deny_button.setAutoDefault(True)
         self.deny_button.setDefault(True)
@@ -198,13 +205,14 @@ class HumanRequestBanner(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("humanBanner")
-        self.setStyleSheet("#humanBanner{background:#fff7ed;border-bottom:2px solid #ea580c;} QLabel{color:#7c2d12;}")
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(10)
         self.label = QLabel()
         self.label.setWordWrap(True)
         lay.addWidget(self.label, 1)
         self.continue_button = QPushButton("계속")
+        self.continue_button.setObjectName("primaryButton")
         self.abort_button = QPushButton("중단")
         lay.addWidget(self.continue_button)
         lay.addWidget(self.abort_button)
@@ -234,7 +242,7 @@ class HumanRequestBanner(QFrame):
             self.hide()
             return
         more = f"  (+{len(self.queue) - 1})" if len(self.queue) > 1 else ""
-        self.label.setText(f"✋ 사람 차례: {self.kind_label(req.kind)} — {req.instructions}{more}")
+        self.label.setText(f"사람 차례: {self.kind_label(req.kind)} — {req.instructions}{more}")
         self.show()
 
     def _emit(self, sig: Signal) -> None:  # type: ignore[type-arg]
@@ -336,6 +344,111 @@ class WirelessQrDialog(QDialog):
     def _cancel(self) -> None:
         self.cancelled.emit()
         self.reject()
+
+
+class UpdateDialog(QDialog):
+    """New release found: notes, then download + verify + run the installer (installed builds only)."""
+
+    installRequested = Signal()
+    skipRequested = Signal()
+
+    def __init__(self, version: str, current: str, notes: str, can_install: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("PhonePilot — 업데이트")
+        self.setMinimumWidth(460)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(10)
+        title = QLabel(f"새 버전 {version}이 나왔습니다")
+        title.setObjectName("dialogTitle")
+        lay.addWidget(title)
+        cur = QLabel(f"지금 버전: {current}")
+        cur.setObjectName("metaText")
+        lay.addWidget(cur)
+        self.notes = QTextBrowser()
+        self.notes.setOpenExternalLinks(True)
+        self.notes.setMarkdown(notes or "변경 내용이 없습니다.")
+        self.notes.setMinimumHeight(160)
+        lay.addWidget(self.notes)
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        lay.addWidget(self.progress)
+        self.status = QLabel("" if can_install else "소스에서 실행 중이라 자동 설치는 하지 않습니다. 릴리스 페이지에서 받으세요.")
+        self.status.setObjectName("helpText")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
+        row = QHBoxLayout()
+        self.skip_button = QPushButton("이 버전 건너뛰기")
+        self.skip_button.setObjectName("ghostButton")
+        self.later_button = QPushButton("나중에")
+        self.install_button = QPushButton("설치" if can_install else "릴리스 페이지 열기")
+        self.install_button.setObjectName("primaryButton")
+        row.addWidget(self.skip_button)
+        row.addStretch(1)
+        row.addWidget(self.later_button)
+        row.addWidget(self.install_button)
+        lay.addLayout(row)
+        self.later_button.clicked.connect(self.reject)
+        self.skip_button.clicked.connect(lambda: (self.skipRequested.emit(), self.reject()))
+        self.install_button.clicked.connect(self.installRequested.emit)
+
+    def set_downloading(self, done: int, total: int) -> None:
+        self.progress.setVisible(True)
+        self.install_button.setEnabled(False)
+        self.skip_button.setEnabled(False)
+        self.progress.setMaximum(max(total, 1))
+        self.progress.setValue(done)
+        mb = 1024 * 1024
+        self.status.setText(f"내려받는 중… {done / mb:.1f} / {total / mb:.1f} MB" if total else f"내려받는 중… {done / mb:.1f} MB")
+
+    def set_failed(self, message: str) -> None:
+        self.progress.setVisible(False)
+        self.install_button.setEnabled(True)
+        self.skip_button.setEnabled(True)
+        self.status.setText(message)
+
+
+class ReportDialog(QDialog):
+    """Something went wrong: offer to open a pre-filled GitHub issue (the user reviews and submits it)."""
+
+    def __init__(self, summary: str, url: str, parent: QWidget | None = None, *, crashed: bool = True) -> None:
+        super().__init__(parent)
+        self.url = url
+        self.setWindowTitle("PhonePilot — 문제 신고")
+        self.setMinimumWidth(440)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(10)
+        title = QLabel("예상하지 못한 오류가 발생했습니다" if crashed else "문제 신고")
+        title.setObjectName("dialogTitle")
+        lay.addWidget(title)
+        if summary:
+            err = QLabel(summary)
+            err.setWordWrap(True)
+            err.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            err.setObjectName("metaText")
+            lay.addWidget(err)
+        help_ = QLabel(
+            "[GitHub에 신고하기]를 누르면 버전·기기 정보와 최근 로그(비밀값은 가려짐)가 채워진 이슈 작성 페이지가 브라우저에 열립니다. "
+            "내용을 확인한 뒤 직접 등록해 주세요."
+        )
+        help_.setObjectName("helpText")
+        help_.setWordWrap(True)
+        lay.addWidget(help_)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        close = QPushButton("닫기")
+        report = QPushButton("GitHub에 신고하기")
+        report.setObjectName("primaryButton")
+        row.addWidget(close)
+        row.addWidget(report)
+        lay.addLayout(row)
+        close.clicked.connect(self.reject)
+        report.clicked.connect(self._open)
+
+    def _open(self) -> None:
+        QDesktopServices.openUrl(QUrl(self.url))
+        self.accept()
 
 
 class WirelessCodeDialog(QDialog):

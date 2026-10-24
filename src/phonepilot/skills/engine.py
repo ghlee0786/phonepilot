@@ -268,6 +268,7 @@ class WorkflowEngine:
         finally:
             run.finished = time.time()
             run.current_step = None
+            self.tools.arbiter.release_lease(actor)  # otherwise the next client waits out the 60 s lease
             self._emit(run)
 
     async def _run_steps(self, run: WorkflowRun, steps: list[Step], actor: str) -> None:

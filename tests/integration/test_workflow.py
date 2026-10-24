@@ -84,12 +84,25 @@ LIKE_ONCE = textwrap.dedent(
 )
 
 
+OPEN_SETTINGS = textwrap.dedent(
+    """
+    name: test.open_settings
+    steps:
+      - id: open
+        action: tap
+        args: {selector: {text: 설정}}
+        expect: {package: com.android.settings, timeout_ms: 2000}
+    """
+)
+
+
 @pytest.fixture
 def engine(stack, tmp_path):
     d = tmp_path / "skills"
     d.mkdir()
     (d / "a.yaml").write_text(SIGNIN_2SV, encoding="utf-8")
     (d / "b.yaml").write_text(LIKE_ONCE, encoding="utf-8")
+    (d / "c.yaml").write_text(OPEN_SETTINGS, encoding="utf-8")
     stack.registry.builtin_dir = d
     stack.registry.reload()
     assert not stack.registry.errors, stack.registry.errors
@@ -103,6 +116,19 @@ async def wait_done(engine, run_id, timeout=30):
             return st
         await asyncio.sleep(0.1)
     raise AssertionError(f"workflow did not finish: {engine.status(run_id)}")
+
+
+async def test_workflow_started_by_lease_holder_is_not_blocked(stack, engine, approver):
+    # an MCP client that just acted holds the 60 s control lease; its own workflow must still be able to act
+    approver.approve_all()
+    await stack.tools.press_key(actor="mcp:client", key="home")
+    assert stack.arbiter.lease_owner == "mcp:client"
+    run = await stack.tools.run_workflow(actor="mcp:client", name="test.open_settings")
+    st = await wait_done(engine, run["run_id"])
+    assert st["state"] == "COMPLETED", st
+    assert st["human_interventions"] == {}
+    assert stack.arbiter.lease_owner is None  # finished run hands control back right away
+    await stack.tools.press_key(actor="mcp:client", key="home")
 
 
 async def test_workflow_a_shape_completes_tc_skl_02(stack, engine, approver, tmp_path):

@@ -2,7 +2,7 @@
   "mcpServers": {
     "phonepilot": {
       "type": "stdio",
-      "command": "E:\\workspace\\python\\mirroring\\.venv\\Scripts\\phonepilot-mcp.exe",
+      "command": "D:\\workspace_python\\phonepilot\\.venv\\Scripts\\phonepilot-mcp.exe",
       "args": []
     }
   }

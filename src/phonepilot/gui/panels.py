@@ -6,10 +6,11 @@ import time
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -26,17 +27,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from phonepilot import __version__
 from phonepilot.agent.timeline import TimelineEvent
+from phonepilot.gui.theme import COLORS, icon
 from phonepilot.security.approvals import ApprovalRequest, ApprovalResponse
 
+# text colours tuned for the dark list background (contrast >= 4.5:1)
+ERROR_COLOR = "#f87171"
+WARN_COLOR = "#fbbf24"
+OK_COLOR = "#4ade80"
 LEVEL_COLORS = {
-    "BLOCK": "#dc2626",
-    "CONFIRM_HIGH": "#ea580c",
-    "CONFIRM": "#d97706",
-    "HUMAN": "#9333ea",
+    "BLOCK": ERROR_COLOR,
+    "CONFIRM_HIGH": "#fb923c",
+    "CONFIRM": WARN_COLOR,
+    "HUMAN": "#c084fc",
     "ALLOW": "",
     "": "",
 }
+ACTOR_ICONS = {"human": ("user", "#86efac"), "system": ("system", COLORS["text_muted"]), "workflow": ("workflow", "#c084fc"), "ai": ("bot", "#93c5fd")}
 OK_RESULTS = {"ok", "approved", "continued", "waiting"}
 MAX_TIMELINE_ITEMS = 2000
 
@@ -54,19 +62,43 @@ STATE_LABELS = {
 }
 
 
-def actor_icon(actor: str) -> str:
-    if actor == "human":
-        return "👤"
-    if actor == "system":
-        return "⚙"
+def section_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("sectionLabel")
+    return lbl
+
+
+def help_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("helpText")
+    lbl.setWordWrap(True)
+    return lbl
+
+
+def button_grid(*rows: list[QPushButton]) -> QGridLayout:
+    """Rows of equal-width buttons; a single button spans the row. Keeps the narrow dock from scrolling sideways."""
+    grid = QGridLayout()
+    grid.setHorizontalSpacing(8)
+    grid.setVerticalSpacing(8)
+    for r, buttons in enumerate(rows):
+        for c, b in enumerate(buttons):
+            b.setMinimumWidth(0)
+            b.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            grid.addWidget(b, r, c, 1, 2 if len(buttons) == 1 else 1)
+    return grid
+
+
+def actor_kind(actor: str) -> str:
+    if actor in ("human", "system"):
+        return actor
     if actor.startswith("workflow:"):
-        return "🔁"
-    return "🤖"
+        return "workflow"
+    return "ai"
 
 
 def format_event(ev: TimelineEvent) -> str:
     ts = datetime.fromtimestamp(ev.ts).strftime("%H:%M:%S")
-    parts = [ts, actor_icon(ev.actor), ev.actor, ev.tool]
+    parts = [ts, ev.actor, ev.tool]
     if ev.target:
         parts.append(f"'{ev.target}'")
     if ev.level:
@@ -81,12 +113,17 @@ class TimelinePanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setContentsMargins(10, 10, 10, 10)
         self.list = QListWidget()
         self.list.setWordWrap(True)
+        self.list.setIconSize(QSize(16, 16))
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.list.setResizeMode(QListWidget.ResizeMode.Adjust)  # re-wrap long entries when the dock is resized
         lay.addWidget(self.list)
         row = QHBoxLayout()
-        clear = QPushButton("목록 비우기")
+        clear = QPushButton(icon("trash", COLORS["text_muted"]), "목록 비우기")
+        clear.setObjectName("ghostButton")
         clear.clicked.connect(self.list.clear)
         row.addStretch(1)
         row.addWidget(clear)
@@ -94,13 +131,14 @@ class TimelinePanel(QWidget):
 
     def add_event(self, ev: TimelineEvent) -> None:
         item = QListWidgetItem(format_event(ev))
+        item.setIcon(icon(*ACTOR_ICONS[actor_kind(ev.actor)]))
         tip = [f"주체: {ev.actor}", f"도구: {ev.tool}", f"대상: {ev.target}", f"등급: {ev.level}", f"결과: {ev.result}"]
         if ev.reason:
             tip.append(f"이유: {ev.reason}")
         item.setToolTip("\n".join(tip))
         color = LEVEL_COLORS.get(ev.level, "")
         if ev.result not in OK_RESULTS and not ev.result.startswith(("found", "saved", "phone=")):
-            color = "#dc2626"
+            color = ERROR_COLOR
         if color:
             item.setForeground(QBrush(QColor(color)))
         self.list.insertItem(0, item)  # newest first
@@ -118,7 +156,7 @@ class WorkflowPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setContentsMargins(10, 4, 10, 10)
 
         runs_box = QGroupBox("실행 중·최근 워크플로")
         rl = QVBoxLayout(runs_box)
@@ -128,9 +166,9 @@ class WorkflowPanel(QWidget):
         self.runs.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         rl.addWidget(self.runs)
         btns = QHBoxLayout()
-        self.pause_button = QPushButton("일시정지")
-        self.resume_button = QPushButton("재개")
-        self.abort_button = QPushButton("중단")
+        self.pause_button = QPushButton(icon("pause"), "일시정지")
+        self.resume_button = QPushButton(icon("play"), "재개")
+        self.abort_button = QPushButton(icon("stop", ERROR_COLOR), "중단")
         for b, action in ((self.pause_button, "pause"), (self.resume_button, "resume"), (self.abort_button, "abort")):
             b.clicked.connect(lambda _=False, a=action: self._control(a))
             btns.addWidget(b)
@@ -141,7 +179,8 @@ class WorkflowPanel(QWidget):
         sl = QVBoxLayout(skills_box)
         self.skills = QListWidget()
         sl.addWidget(self.skills)
-        self.run_button = QPushButton("실행…")
+        self.run_button = QPushButton(icon("play", "#ffffff"), "실행…")
+        self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self._run)
         self.skills.itemDoubleClicked.connect(lambda _i: self._run())
         sl.addWidget(self.run_button)
@@ -151,8 +190,8 @@ class WorkflowPanel(QWidget):
     def set_skills(self, skills: list[dict[str, Any]]) -> None:
         self.skills.clear()
         for s in skills:
-            label = s["name"] + ("  🔒" if s.get("sensitive") else "")
-            item = QListWidgetItem(label)
+            item = QListWidgetItem(s["name"])
+            item.setIcon(icon("lock", WARN_COLOR) if s.get("sensitive") else icon("workflow", COLORS["text_muted"]))
             item.setToolTip(str(s.get("description", "")))
             item.setData(Qt.ItemDataRole.UserRole, s)
             self.skills.addItem(item)
@@ -176,11 +215,11 @@ class WorkflowPanel(QWidget):
         err = run.get("error")
         item.setToolTip(2, str(err) if err else state)
         if state in ("FAILED", "ABORTED"):
-            item.setForeground(2, QBrush(QColor("#dc2626")))
+            item.setForeground(2, QBrush(QColor(ERROR_COLOR)))
         elif state in ("WAITING_HUMAN", "WAITING_APPROVAL", "PAUSED", "PAUSED_DISCONNECTED", "NEEDS_ATTENTION"):
-            item.setForeground(2, QBrush(QColor("#d97706")))
+            item.setForeground(2, QBrush(QColor(WARN_COLOR)))
         elif state == "COMPLETED":
-            item.setForeground(2, QBrush(QColor("#16a34a")))
+            item.setForeground(2, QBrush(QColor(OK_COLOR)))
         if self.runs.currentItem() is None:
             self.runs.setCurrentItem(item)
 
@@ -205,15 +244,16 @@ class ApprovalsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.addWidget(QLabel("대기 중"))
+        lay.setContentsMargins(10, 4, 10, 10)
+        lay.addWidget(section_label("대기 중"))
         self.pending = QListWidget()
         lay.addWidget(self.pending, 1)
-        self.open_button = QPushButton("승인 창 열기")
+        self.open_button = QPushButton(icon("open", "#ffffff"), "승인 창 열기")
+        self.open_button.setObjectName("primaryButton")
         self.open_button.clicked.connect(self._open)
         self.pending.itemDoubleClicked.connect(lambda _i: self._open())
         lay.addWidget(self.open_button)
-        lay.addWidget(QLabel("최근 기록"))
+        lay.addWidget(section_label("최근 기록"))
         self.history = QListWidget()
         lay.addWidget(self.history, 2)
         self._history_len = -1
@@ -224,7 +264,7 @@ class ApprovalsPanel(QWidget):
             item = QListWidgetItem(f"#{r.id} {r.decision.level.name} · {r.client} · {r.summary}")
             item.setData(Qt.ItemDataRole.UserRole, r.id)
             if r.high:
-                item.setForeground(QBrush(QColor("#ea580c")))
+                item.setForeground(QBrush(QColor(LEVEL_COLORS["CONFIRM_HIGH"])))
             self.pending.addItem(item)
 
     def set_history(self, history: list[tuple[ApprovalRequest, ApprovalResponse]]) -> None:
@@ -233,10 +273,11 @@ class ApprovalsPanel(QWidget):
         self._history_len = len(history)
         self.history.clear()
         for req, resp in reversed(history):
-            mark = "✔ 승인" if resp.approved else "✖ 거부"
+            mark = "승인" if resp.approved else "거부"
             ts = datetime.fromtimestamp(time.time() - (time.monotonic() - req.created)).strftime("%H:%M:%S")
             item = QListWidgetItem(f"{ts} {mark} · {req.client} · {req.summary}" + (f" ({resp.note})" if resp.note else ""))
-            item.setForeground(QBrush(QColor("#16a34a" if resp.approved else "#dc2626")))
+            item.setIcon(icon("check", OK_COLOR) if resp.approved else icon("stop", ERROR_COLOR))
+            item.setForeground(QBrush(QColor(OK_COLOR if resp.approved else ERROR_COLOR)))
             self.history.addItem(item)
 
     def _open(self) -> None:
@@ -255,13 +296,22 @@ class DevicePanel(QWidget):
     wirelessScan = Signal()
     calibFinish = Signal()
     calibReset = Signal()
+    calibFidelity = Signal()
+    recordStart = Signal()
+    recordFinish = Signal()
+    recordCancel = Signal()
+    checkUpdate = Signal()
+    reportProblem = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setContentsMargins(10, 4, 10, 10)
+        lay.setSpacing(4)
         info_box = QGroupBox("기기")
         form = QFormLayout(info_box)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(7)
         self.fields: dict[str, QLabel] = {}
         for key, label in (
             ("state", "연결 상태"),
@@ -278,8 +328,10 @@ class DevicePanel(QWidget):
             # long unbreakable values (IME component names) must not widen the dock
             lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             self.fields[key] = lbl
-            form.addRow(label, lbl)
-        self.reconnect_button = QPushButton("다시 연결")
+            key_lbl = QLabel(label)
+            key_lbl.setObjectName("fieldKey")
+            form.addRow(key_lbl, lbl)
+        self.reconnect_button = QPushButton(icon("refresh"), "다시 연결")
         self.reconnect_button.clicked.connect(self.reconnect.emit)
         form.addRow(self.reconnect_button)
         lay.addWidget(info_box)
@@ -287,34 +339,42 @@ class DevicePanel(QWidget):
         mcp_box = QGroupBox("AI 연결 (MCP)")
         ml = QVBoxLayout(mcp_box)
         self.mcp_url = QLabel("시작 전")
+        self.mcp_url.setObjectName("monoValue")
         self.mcp_url.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.mcp_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         ml.addWidget(self.mcp_url)
-        row = QHBoxLayout()
-        self.copy_url_button = QPushButton("URL 복사")
-        self.copy_token_button = QPushButton("토큰 복사")
+        self.copy_url_button = QPushButton(icon("copy"), "URL 복사")
+        self.copy_token_button = QPushButton(icon("copy"), "토큰 복사")
         self.copy_url_button.clicked.connect(self.copyUrl.emit)
         self.copy_token_button.clicked.connect(self.copyToken.emit)
-        row.addWidget(self.copy_url_button)
-        row.addWidget(self.copy_token_button)
-        ml.addLayout(row)
+        ml.addLayout(button_grid([self.copy_url_button, self.copy_token_button]))
         lay.addWidget(mcp_box)
+
+        app_box = QGroupBox("앱 정보")
+        al = QVBoxLayout(app_box)
+        self.version_label = QLabel(f"PhonePilot {__version__}")
+        al.addWidget(self.version_label)
+        self.update_status = help_label("")
+        self.update_status.setVisible(False)
+        al.addWidget(self.update_status)
+        self.update_button = QPushButton(icon("refresh"), "업데이트 확인")
+        self.report_button = QPushButton(icon("alert"), "문제 신고")
+        self.update_button.clicked.connect(self.checkUpdate.emit)
+        self.report_button.clicked.connect(self.reportProblem.emit)
+        al.addLayout(button_grid([self.update_button, self.report_button]))
+        lay.addWidget(app_box)
 
         wl_box = QGroupBox("무선 연결 (Android 11+)")
         wl = QVBoxLayout(wl_box)
-        wl_help = QLabel("케이블 없이 같은 Wi-Fi로 연결합니다. 처음 한 번 페어링하면 이후에는 자동으로 찾아 연결합니다.")
-        wl_help.setWordWrap(True)
-        wl.addWidget(wl_help)
-        wrow = QHBoxLayout()
-        self.wireless_qr_button = QPushButton("QR로 페어링")
-        self.wireless_code_button = QPushButton("코드로 페어링")
-        self.wireless_scan_button = QPushButton("무선 기기 찾기")
+        wl.addWidget(help_label("케이블 없이 같은 Wi-Fi로 연결합니다. 처음 한 번 페어링하면 이후에는 자동으로 찾아 연결합니다."))
+        self.wireless_qr_button = QPushButton(icon("qr"), "QR 페어링")
+        self.wireless_code_button = QPushButton(icon("keypad"), "코드 페어링")
+        self.wireless_scan_button = QPushButton(icon("wifi"), "페어링된 기기 찾기")
+        self.wireless_scan_button.setToolTip("같은 Wi-Fi에서 페어링된 폰을 찾아 연결합니다")
         self.wireless_qr_button.clicked.connect(self.wirelessQr.emit)
         self.wireless_code_button.clicked.connect(self.wirelessCode.emit)
         self.wireless_scan_button.clicked.connect(self.wirelessScan.emit)
-        for b in (self.wireless_qr_button, self.wireless_code_button, self.wireless_scan_button):
-            wrow.addWidget(b)
-        wl.addLayout(wrow)
+        wl.addLayout(button_grid([self.wireless_qr_button, self.wireless_code_button], [self.wireless_scan_button]))
         self.wireless_status = QLabel("")
         self.wireless_status.setWordWrap(True)
         wl.addWidget(self.wireless_status)
@@ -322,11 +382,10 @@ class DevicePanel(QWidget):
 
         cal_box = QGroupBox("제스처 보정")
         cl = QVBoxLayout(cal_box)
-        self.calib_help = QLabel(
+        self.calib_help = help_label(
             "[보정 시작]을 누른 뒤 미러 화면에서 평소처럼 탭 5회, 길게 누르기 3회, 위아래 스와이프 5회 이상을 해 주세요. "
             "AI 제스처의 기본 속도·누름 시간·곡률이 내 손에 맞춰집니다(무작위 흔들림 없음)."
         )
-        self.calib_help.setWordWrap(True)
         cl.addWidget(self.calib_help)
         self.calib_counts = QLabel("기록: -")
         cl.addWidget(self.calib_counts)
@@ -334,18 +393,45 @@ class DevicePanel(QWidget):
         self.calib_profile.setWordWrap(True)
         self.calib_profile.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         cl.addWidget(self.calib_profile)
-        crow = QHBoxLayout()
-        self.calib_start_button = QPushButton("보정 시작")
-        self.calib_finish_button = QPushButton("완료·저장")
-        self.calib_reset_button = QPushButton("기본값으로")
+        self.calib_start_button = QPushButton(icon("hand", "#ffffff"), "보정 시작")
+        self.calib_start_button.setObjectName("primaryButton")
+        self.calib_finish_button = QPushButton(icon("check"), "완료·저장")
+        self.calib_reset_button = QPushButton(icon("undo", COLORS["text_muted"]), "기본값으로")
+        self.calib_reset_button.setObjectName("ghostButton")
         self.calib_finish_button.setEnabled(False)
         self.calib_start_button.clicked.connect(self.calibStart.emit)
         self.calib_finish_button.clicked.connect(self.calibFinish.emit)
         self.calib_reset_button.clicked.connect(self.calibReset.emit)
-        for b in (self.calib_start_button, self.calib_finish_button, self.calib_reset_button):
-            crow.addWidget(b)
-        cl.addLayout(crow)
+        self.calib_fidelity_button = QPushButton(icon("chart", COLORS["text_muted"]), "유사도 보기")
+        self.calib_fidelity_button.setObjectName("ghostButton")
+        self.calib_fidelity_button.setToolTip("마지막 보정 기록과 AI 제스처를 같은 기준으로 재서 비교합니다")
+        self.calib_fidelity_button.clicked.connect(self.calibFidelity.emit)
+        cl.addLayout(button_grid([self.calib_start_button, self.calib_finish_button], [self.calib_reset_button, self.calib_fidelity_button]))
         lay.addWidget(cal_box)
+
+        rec_box = QGroupBox("작업 녹화")
+        rl = QVBoxLayout(rec_box)
+        rl.addWidget(
+            help_label(
+                "[녹화 시작]을 누르고 미러 화면에서 작업을 한 번 직접 해 주세요. 누른 버튼·스와이프·뒤로가기·기다린 시간이 "
+                "스킬로 저장되고, 워크플로 탭에서 다시 실행하면 내 제스처 프로필로 같은 순서를 따라 합니다. "
+                "입력한 글자는 저장하지 않고 실행할 때 다시 물어봅니다."
+            )
+        )
+        self.record_counts = QLabel("기록: -")
+        rl.addWidget(self.record_counts)
+        self.record_start_button = QPushButton(icon("record", "#ffffff"), "녹화 시작")
+        self.record_start_button.setObjectName("primaryButton")
+        self.record_finish_button = QPushButton(icon("check"), "완료·저장")
+        self.record_cancel_button = QPushButton(icon("undo", COLORS["text_muted"]), "취소")
+        self.record_cancel_button.setObjectName("ghostButton")
+        self.record_finish_button.setEnabled(False)
+        self.record_cancel_button.setEnabled(False)
+        self.record_start_button.clicked.connect(self.recordStart.emit)
+        self.record_finish_button.clicked.connect(self.recordFinish.emit)
+        self.record_cancel_button.clicked.connect(self.recordCancel.emit)
+        rl.addLayout(button_grid([self.record_start_button, self.record_finish_button], [self.record_cancel_button]))
+        lay.addWidget(rec_box)
 
         pf_box = QGroupBox("사전 점검")
         pl = QVBoxLayout(pf_box)
@@ -353,6 +439,8 @@ class DevicePanel(QWidget):
         self.preflight.setHorizontalHeaderLabels(["항목", "상태", "상세"])
         self.preflight.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.preflight.verticalHeader().setVisible(False)
+        self.preflight.setShowGrid(False)
+        self.preflight.setMinimumHeight(160)
         self.preflight.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         pl.addWidget(self.preflight)
         lay.addWidget(pf_box, 1)
@@ -366,6 +454,15 @@ class DevicePanel(QWidget):
                 + ("  (기록 중…)" if active else "")
             )
 
+    def set_recording(self, active: bool, counts: dict[str, int] | None = None) -> None:
+        self.record_start_button.setEnabled(not active)
+        self.record_finish_button.setEnabled(active)
+        self.record_cancel_button.setEnabled(active)
+        if counts is not None:
+            names = {"tap": "탭", "long_press": "길게", "swipe": "스와이프", "key": "키", "text": "입력"}
+            parts = " · ".join(f"{names.get(k, k)} {v}" for k, v in counts.items()) or "없음"
+            self.record_counts.setText(f"기록: {parts}" + ("  (녹화 중…)" if active else ""))
+
     def set_profile(self, prof: dict[str, Any]) -> None:
         if not prof.get("calibrated"):
             self.calib_profile.setText("프로필: 기본값 (탭 70ms · 길게 800ms · 스와이프 300ms)")
@@ -376,14 +473,18 @@ class DevicePanel(QWidget):
             f"스와이프 {speed:.2f}px/ms · 곡률 {prof.get('arc')} · 속도 정점 {prof.get('peak')} · 멈춤 {prof.get('settle_ms')}ms"
         )
 
+    def set_update_status(self, text: str) -> None:
+        self.update_status.setText(text)
+        self.update_status.setVisible(bool(text))
+
     def set_field(self, key: str, value: str) -> None:
         if key in self.fields:
             self.fields[key].setText(value or "-")
             self.fields[key].setToolTip(value)
 
     def set_preflight(self, rows: list[dict[str, str]]) -> None:
-        icons = {"ok": "✔ 정상", "warn": "⚠ 주의", "fail": "✖ 실패", "info": "ℹ 정보"}
-        colors = {"ok": "#16a34a", "warn": "#d97706", "fail": "#dc2626", "info": "#6b7280"}
+        icons = {"ok": "정상", "warn": "주의", "fail": "실패", "info": "정보"}
+        colors = {"ok": OK_COLOR, "warn": WARN_COLOR, "fail": ERROR_COLOR, "info": COLORS["text_muted"]}
         self.preflight.setRowCount(len(rows))
         for i, row in enumerate(rows):
             status = row.get("status", "")

@@ -88,6 +88,19 @@ async def test_korean_text_via_clipboard_tc_inp_06(stack):
     assert res["verified"] is True
 
 
+async def test_korean_text_waits_for_slow_paste_before_restoring_clipboard(stack):
+    # real device: with clear=True the paste key sits behind the DEL keys, so the app reads the clipboard late
+    await goto(stack, "youtube_create")
+    stack.tools.device_clipboard = "이전 내용"
+    stack.device.paste_delay_s = 0.5
+    rid = "com.google.android.youtube:id/name"
+    await stack.tools.type_text(text="old", selector={"resource_id": rid})
+    res = await stack.tools.type_text(text="새 채널 이름", clear=True, selector={"resource_id": rid})
+    assert stack.device.field_value("youtube_create", rid) == "새 채널 이름"
+    assert stack.device.clipboard == "이전 내용"
+    assert res["verified"] is True
+
+
 async def test_ascii_text_uses_inject_text(stack):
     await goto(stack, "youtube_create")
     await stack.tools.type_text(text="techlog_bite", selector={"resource_id": "com.google.android.youtube:id/handle"})

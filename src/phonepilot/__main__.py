@@ -7,6 +7,7 @@
   python -m phonepilot init            create .env / secrets.meta.yaml / config.yaml templates
   python -m phonepilot skill validate <path.yaml>
   python -m phonepilot mcp-stdio       stdio relay for Claude Desktop
+  python -m phonepilot setup-claude    register that relay in Claude Desktop's config (merged, backed up)
 """
 
 from __future__ import annotations
@@ -29,9 +30,11 @@ def _setup_logging(debug: bool) -> None:
 
 def cmd_gui(args: argparse.Namespace) -> int:
     from phonepilot.config import load_config
-    from phonepilot.gui.app import run_gui
+    from phonepilot.gui.app import acquire_single_instance, run_gui
     from phonepilot.runtime import CoreRuntime
 
+    if not args.demo and not acquire_single_instance():  # demo copies (tests, screenshots) may run side by side
+        return 0
     runtime = CoreRuntime(load_config(), demo=args.demo, serial=args.serial)
     return run_gui(runtime)
 
@@ -127,6 +130,34 @@ def cmd_skill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_set_secret(args: argparse.Namespace) -> int:
+    """Installer step: the value comes from a file (never the command line, which other processes can read)."""
+    from phonepilot.config import load_config
+    from phonepilot.envfile import set_env_value
+    from phonepilot.paths import expand
+    from phonepilot.security.vault import _restrict_acl
+
+    value = Path(args.from_file).read_text(encoding="utf-8-sig").strip()
+    if not value:
+        print("값이 비어 있어 바꾸지 않았습니다")
+        return 0
+    env = expand(load_config().privacy.env_path)
+    set_env_value(env, args.name, value)
+    _restrict_acl(env)
+    print(f"{args.name} 를 저장했습니다: {env}")
+    return 0
+
+
+def cmd_setup_claude(_args: argparse.Namespace) -> int:
+    from phonepilot.claude_setup import mcp_command, register_desktop
+
+    command, cmd_args = mcp_command()
+    path = register_desktop(command, cmd_args)
+    print(f"Claude Desktop 설정에 PhonePilot을 등록했습니다: {path}")
+    print("Claude Desktop을 다시 시작하면 적용됩니다.")
+    return 0
+
+
 def cmd_mcp_stdio(_args: argparse.Namespace) -> int:
     from phonepilot.agent.stdio_shim import amain
 
@@ -148,14 +179,25 @@ def main(argv: list[str] | None = None) -> int:
     sk.add_argument("action", choices=["validate"])
     sk.add_argument("path")
     sub.add_parser("mcp-stdio")
-    args = parser.parse_args(argv)
+    sub.add_parser("setup-claude", help="register the MCP relay with Claude Desktop")
+    ss = sub.add_parser("set-secret", help="write one .env value read from a file (installer)")
+    ss.add_argument("name")
+    ss.add_argument("--from-file", required=True)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args, _unknown = parser.parse_known_args(raw)
+    if args.cmd is None:  # default command: global flags stay in front of "gui", the rest (--demo, --serial) after it
+        globals_ = [a for a in raw if a == "--debug"]
+        args = parser.parse_args([*globals_, "gui", *(a for a in raw if a != "--debug")])
+    else:
+        args = parser.parse_args(raw)
     if args.cmd != "mcp-stdio":
         _setup_logging(args.debug)
     else:
         logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-    handlers = {"gui": cmd_gui, "headless": cmd_headless, "doctor": cmd_doctor, "init": cmd_init, "skill": cmd_skill, "mcp-stdio": cmd_mcp_stdio}
-    if args.cmd is None:
-        args = parser.parse_args(["gui", *(argv or sys.argv[1:])])
+    handlers = {
+        "gui": cmd_gui, "headless": cmd_headless, "doctor": cmd_doctor, "init": cmd_init, "skill": cmd_skill,
+        "mcp-stdio": cmd_mcp_stdio, "setup-claude": cmd_setup_claude, "set-secret": cmd_set_secret,
+    }
     return handlers[args.cmd](args)
 
 

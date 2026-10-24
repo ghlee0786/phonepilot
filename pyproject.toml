@@ -30,6 +30,9 @@ dev = [
     "pytest-qt>=4.4",
     "hypothesis>=6.100",
 ]
+build = [
+    "pyinstaller>=6.10",
+]
 
 [project.scripts]
 phonepilot = "phonepilot.__main__:main"

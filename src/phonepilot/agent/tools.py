@@ -46,6 +46,8 @@ KEY_NAMES: dict[str, int] = {
     "space": p.Keycode.SPACE, "copy": p.Keycode.COPY, "paste": p.Keycode.PASTE, "cut": p.Keycode.CUT,
 }
 META_NAMES = {"shift": p.META_SHIFT_ON, "alt": p.META_ALT_ON, "ctrl": p.META_CTRL_ON, "meta": p.META_META_ON}
+PASTE_TIMEOUT_S = 3.0  # max wait for pasted text to appear before the clipboard is restored
+PASTE_FALLBACK_S = 1.0  # wait when the focused field cannot be read (password, no focus)
 TWO_SV_PHONE_MARKERS = ["음성 또는 문자 메시지", "문자 메시지", "voice or text message", "2단계 인증 전화번호", "2-step verification phone", "sms"]
 TWO_SV_ALLOWED = {
     "authenticator": ["인증자", "인증 앱", "authenticator"],
@@ -385,7 +387,11 @@ class ToolService(IntegrationMixin):
         dw, dh = self.device.display_size
         return norm_to_px(float(pt[0]), float(pt[1]), dw, dh)
 
-    async def swipe(self, actor: str = "agent", start: list[float] | None = None, end: list[float] | None = None, duration_ms: float | None = None, curve: str = "ease", arc: float | None = None, **args: Any) -> dict[str, Any]:
+    async def swipe(
+        self, actor: str = "agent", start: list[float] | None = None, end: list[float] | None = None, duration_ms: float | None = None,
+        curve: str = "ease", arc: float | None = None, hold_end: bool = False, **args: Any,
+    ) -> dict[str, Any]:
+        """hold_end: rest at the end point for the profile's settle time before lifting (drag-scroll, no fling)."""
         if not start or not end:
             raise PhonePilotError("ELEMENT_NOT_FOUND", "start=[x_norm,y_norm] and end=[x_norm,y_norm] required")
         x0, y0 = self._norm_point(start)
@@ -394,9 +400,12 @@ class ToolService(IntegrationMixin):
         async def run(_: Target | None) -> None:
             prof = self.gesture_profile
             dist = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
-            await self.arbiter.ai_gesture(
-                gesture.swipe(x0, y0, x1, y1, duration_ms or prof.swipe_ms(dist), curve, prof.arc if arc is None else arc, ease=prof.ease)
-            )
+            dur = duration_ms or prof.swipe_ms(dist)
+            bend = prof.arc if arc is None else arc
+            if hold_end:
+                await self.arbiter.ai_gesture(gesture.precise_scroll(x0, y0, x1, y1, dur, prof.settle_ms, bend, ease=prof.ease))
+            else:
+                await self.arbiter.ai_gesture(gesture.swipe(x0, y0, x1, y1, dur, curve, bend, ease=prof.ease))
 
         return await self._act("swipe", actor, args, run)
 
@@ -486,14 +495,34 @@ class ToolService(IntegrationMixin):
         return await self._act("pinch", actor, args, run)
 
     async def _type_unicode(self, text: str) -> None:
-        """Non-ASCII text: set clipboard + paste, then restore the previous clipboard (FR-INP-021)."""
+        """Non-ASCII text: set clipboard + paste, then restore the previous clipboard (FR-INP-021).
+
+        The app reads the clipboard only when it handles the paste key, which can be long after it was sent
+        (e.g. queued behind the DEL keys of `clear`). Restoring too early pastes the old clipboard instead,
+        so the restore waits until the text shows up in the focused field.
+        """
         prev = self.device_clipboard
         self._clip_seq += 1
         await self.arbiter.ai_raw(p.set_clipboard(self._clip_seq, text, paste=True))
         self.clipboard_used = True
-        await asyncio.sleep(0.15)
+        await self._wait_for_paste(text)
         self._clip_seq += 1
         await self.arbiter.ai_raw(p.set_clipboard(self._clip_seq, prev or "", paste=False))
+
+    async def _wait_for_paste(self, text: str) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + PASTE_TIMEOUT_S
+        await asyncio.sleep(0.15)
+        want = text.strip()  # some fields trim pasted whitespace
+        while loop.time() < deadline:
+            obs = await self.observer.observe()
+            field_el = next((e for e in obs.elements if e.focused and e.role == "text_field"), None)
+            if field_el is None or field_el.password:  # cannot see the field: give the app a fixed head start
+                await asyncio.sleep(max(0.0, min(PASTE_FALLBACK_S, deadline - loop.time())))
+                return
+            if want in field_el.text:
+                return
+            await asyncio.sleep(0.2)
 
     async def _clear_field(self, el: UIElement | None) -> None:
         await self.arbiter.ai_key(p.Keycode.MOVE_END)
@@ -895,6 +924,9 @@ class ToolService(IntegrationMixin):
         return self._need_skills().describe(name)
 
     async def run_workflow(self, actor: str = "agent", name: str = "", inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+        # the run acts as "workflow:<skill>"; the caller's own lease would block it (CONTROL_BUSY) until it expired.
+        # The run takes the lease on its first action, so other clients are still kept out while it works.
+        self.arbiter.release_lease(actor)
         return await self._need_skills().start(name, inputs or {}, requested_by=actor)
 
     async def workflow_status(self, actor: str = "agent", run_id: str = "") -> dict[str, Any]:

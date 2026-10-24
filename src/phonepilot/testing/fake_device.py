@@ -97,6 +97,7 @@ class FakeDevice(DeviceBackend):
         self.values: dict[tuple[str, str], str] = {}  # (screen, rid) -> text
         self.focus: tuple[str, str] | None = None
         self.clipboard = ""
+        self.paste_delay_s = 0.0  # > 0: the "app" reads the clipboard this long after the paste key, like a busy real app
         self.shell_log: list[str] = []
         self.pushed: dict[str, bytes] = {}
         self.ui_dump_failures = 0
@@ -234,7 +235,10 @@ class FakeDevice(DeviceBackend):
         elif t == p.ControlType.SET_CLIPBOARD:
             self.clipboard = str(m["text"])
             if m["paste"]:
-                self._type(self.clipboard)
+                if self.paste_delay_s > 0:
+                    asyncio.get_running_loop().call_later(self.paste_delay_s, lambda: self._type(self.clipboard))
+                else:
+                    self._type(self.clipboard)
         await asyncio.sleep(0)
 
     async def dump_ui(self) -> str:

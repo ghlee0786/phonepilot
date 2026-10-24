@@ -131,9 +131,12 @@ def build_server(service: ToolService, end_session: Any = None) -> MCPServer:
     async def long_press(element: int | None = None, obs_id: str | None = None, selector: dict[str, Any] | None = None, x_norm: float | None = None, y_norm: float | None = None, duration_ms: float = 800, reason: str = "", ctx: Context | None = None) -> CallToolResult:
         return await call(ctx, "long_press", element=element, obs_id=obs_id, selector=selector, x_norm=x_norm, y_norm=y_norm, duration_ms=duration_ms, reason=reason)
 
-    @tool(ACT, "Swipe from start=[x_norm,y_norm] to end=[x_norm,y_norm]. curve: ease|linear|ease_out.")
-    async def swipe(start: list[float], end: list[float], duration_ms: float = 300, curve: str = "ease", arc: float = 0.0, reason: str = "", ctx: Context | None = None) -> CallToolResult:
-        return await call(ctx, "swipe", start=start, end=end, duration_ms=duration_ms, curve=curve, arc=arc, reason=reason)
+    @tool(ACT, "Swipe from start=[x_norm,y_norm] to end=[x_norm,y_norm]. curve: ease|linear|ease_out. Omitted duration_ms/arc use the gesture profile; hold_end=true rests before lifting (no fling).")
+    async def swipe(
+        start: list[float], end: list[float], duration_ms: float | None = None, curve: str = "ease", arc: float | None = None,
+        hold_end: bool = False, reason: str = "", ctx: Context | None = None,
+    ) -> CallToolResult:
+        return await call(ctx, "swipe", start=start, end=end, duration_ms=duration_ms, curve=curve, arc=arc, hold_end=hold_end, reason=reason)
 
     @tool(ACT, "Precise scroll without fling. direction: up|down|left|right (content direction). amount 0.1..1.0 of the container.")
     async def scroll(direction: str = "down", container: int | None = None, obs_id: str | None = None, amount: float = 0.6, reason: str = "", ctx: Context | None = None) -> CallToolResult:

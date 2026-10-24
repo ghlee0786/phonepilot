@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from urllib.parse import unquote_plus
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
+from phonepilot import update
 from phonepilot.agent.timeline import TimelineEvent
 from phonepilot.core.coords import fit_rect
 from phonepilot.core.scrcpy import protocol as p
@@ -307,6 +309,38 @@ def test_timeline_events_appear(qtbot, window: MainWindow, runtime: CoreRuntime)
     window.refresh_status()
     assert "AI 실행 중" in window.control_badge.text()
     assert window.mirror.control_state == "ai_running"
+
+
+def test_lost_connection_greys_out_device_controls(window: MainWindow) -> None:
+    window._set_conn("FAILED", "DEVICE_OFFLINE")
+    assert not window.home_action.isEnabled() and not window.back_action.isEnabled()
+    assert "자동으로 연결" in window.mirror.offline_notice
+    assert window.stop_action.isEnabled()  # the kill switch never depends on the phone
+    window._set_conn("STREAMING", "FakePhone")
+    assert window.home_action.isEnabled()
+    assert window.mirror.offline_notice == ""
+
+
+def test_report_problem_prefills_issue(window: MainWindow) -> None:
+    window.report_problem("DEVICE_OFFLINE: lost", "Traceback ...")
+    dlg = window._report_dialog
+    assert dlg is not None and "/phonepilot-releases/issues/new?" in dlg.url
+    assert "DEVICE_OFFLINE" in unquote_plus(dlg.url)
+    dlg.reject()
+
+
+def test_update_check_offers_newer_release(window: MainWindow, qtbot, monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    rel = update.Release("9.9.9", "v9.9.9", "- 새 기능", "https://example/r", "https://example/s.exe", "PhonePilot-9.9.9-setup.exe", 1, "")
+
+    async def fake_fetch(_repo: str) -> update.Release:
+        return rel
+
+    monkeypatch.setattr(update, "fetch_latest", fake_fetch)
+    monkeypatch.setattr("phonepilot.update.localdata_dir", lambda: tmp_path)
+    window.check_for_update(manual=True)
+    qtbot.waitUntil(lambda: window._update_dialog is not None, timeout=3000)
+    assert "9.9.9" in window.device_panel.update_status.text()
+    window._update_dialog.reject()
 
 
 def test_workflow_panel_lists_skills(window: MainWindow) -> None:

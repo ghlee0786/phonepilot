@@ -54,6 +54,7 @@ class InputArbiter:
         self._lease_ts = 0.0
         self.listeners: list[Callable[[str, dict], None]] = []
         self.recorder: Any = None  # CalibrationRecorder, set by the runtime (FR-INP-035)
+        self.task_recorder: Any = None  # TaskRecorder, set by the runtime (FR-SKL-014)
 
     # ----------------------------------------------------------------- status
     @property
@@ -156,14 +157,25 @@ class InputArbiter:
         if self.recorder is not None and pointer_id == p.POINTER_ID_GENERIC_FINGER:
             name = {p.MotionAction.DOWN: "down", p.MotionAction.MOVE: "move", p.MotionAction.UP: "up"}.get(action, "cancel")
             self.recorder.feed(name, x, y, self._clock() * 1000)
+        if self.task_recorder is not None and pointer_id == p.POINTER_ID_GENERIC_FINGER:
+            name = {p.MotionAction.DOWN: "down", p.MotionAction.MOVE: "move", p.MotionAction.UP: "up"}.get(action, "cancel")
+            self.task_recorder.feed_touch(name, x, y, self._clock() * 1000)
         await self._touch(action, pointer_id, x, y)
 
     async def human_key(self, action: p.KeyAction, keycode: int, meta: int = 0, repeat: int = 0) -> None:
         self._note_human()
+        if self.task_recorder is not None and action == p.KeyAction.DOWN and repeat == 0:
+            self.task_recorder.feed_key(keycode, self._clock() * 1000)
         await self._send(p.inject_keycode(action, keycode, repeat, meta))
 
     async def human_raw(self, msg: bytes) -> None:
         self._note_human()
+        if self.task_recorder is not None and msg:
+            now = self._clock() * 1000
+            if msg[0] in (p.ControlType.INJECT_TEXT, p.ControlType.SET_CLIPBOARD):
+                self.task_recorder.feed_text(now)  # content is not recorded
+            elif msg[0] == p.ControlType.BACK_OR_SCREEN_ON and len(msg) > 1 and msg[1] == p.KeyAction.DOWN:
+                self.task_recorder.feed_key(4, now)  # KEYCODE_BACK
         await self._send(msg)
 
     async def human_scroll(self, x: int, y: int, h: float, v: float) -> None:

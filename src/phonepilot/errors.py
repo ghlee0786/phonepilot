@@ -21,6 +21,8 @@ RETRYABLE = {
     "RATE_LIMITED",
     "WORKFLOW_STEP_FAILED",
     "APP_NOT_RUNNING",
+    "UPDATE_CHECK_FAILED",
+    "UPDATE_DOWNLOAD_FAILED",
 }
 
 HINTS = {
@@ -47,6 +49,9 @@ HINTS = {
     "STEP_BUDGET_EXCEEDED": "단계 예산을 넘었습니다. 상황을 사용자에게 보고하세요",
     "APP_NOT_RUNNING": "PhonePilot 앱을 실행하세요",
     "ORDER_STATE_UNKNOWN": "주문 내역을 조회해 확인하세요. 재제출하지 마세요",
+    "UPDATE_CHECK_FAILED": "인터넷 연결을 확인하고 잠시 후 다시 시도하세요",
+    "UPDATE_DOWNLOAD_FAILED": "인터넷 연결을 확인하고 다시 시도하세요",
+    "UPDATE_CHECKSUM_MISMATCH": "내려받은 설치 파일이 손상됐거나 바뀌었습니다. 설치하지 않았습니다",
 }
 
 

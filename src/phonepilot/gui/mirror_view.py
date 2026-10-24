@@ -124,6 +124,7 @@ class MirrorView(QWidget):
         # overlay state
         self.control_state = "manual"
         self.dimmed = False  # reconnecting: grey last frame
+        self.offline_notice = ""  # set while not streaming: greys the frozen frame and says why
         self._flash_until = 0.0
         self._reveal_until = 0.0
         self._flash_timer = QTimer(self)
@@ -477,9 +478,15 @@ class MirrorView(QWidget):
         if self.image is None:
             return None
         img = self._blurred(self.image) if self.curtain_active() else self.image
-        if self.dimmed:
+        if self.dimmed or self.offline_notice:
             img = img.convertToFormat(QImage.Format.Format_Grayscale8)
         return img
+
+    def set_offline_notice(self, text: str) -> None:
+        """Shown over the last frame while there is no live stream, so a frozen picture never looks connected."""
+        if text != self.offline_notice:
+            self.offline_notice = text
+            self.update()
 
     def paintEvent(self, _e: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -491,10 +498,13 @@ class MirrorView(QWidget):
         target = QRectF(r.x, r.y, r.w, r.h)
         if img is not None and r.scale > 0:
             painter.drawImage(target, img)
-            if self.curtain_active():
+            if self.offline_notice:
+                painter.fillRect(target, QColor(0, 0, 0, 120))
+                self._draw_notice(painter, target, self.offline_notice)
+            elif self.curtain_active():
                 self._draw_notice(painter, target, "민감 화면 — Alt+U로 30초간 보기")
         else:
-            self._draw_notice(painter, QRectF(self.rect()), "화면을 기다리는 중…")
+            self._draw_notice(painter, QRectF(self.rect()), self.offline_notice or "화면을 기다리는 중…")
         if self.preedit:
             self._draw_preedit(painter, target)
         self._draw_border(painter)
@@ -504,10 +514,16 @@ class MirrorView(QWidget):
         f = QFont(self.font())
         f.setPointSizeF(max(10.0, f.pointSizeF() * 1.1))
         painter.setFont(f)
-        box = QRectF(area.center().x() - 160, area.center().y() - 24, 320, 48)
-        painter.fillRect(box, QColor(0, 0, 0, 170))
+        flags = Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap
+        width = min(360.0, max(160.0, area.width() - 32))
+        text_rect = painter.fontMetrics().boundingRect(0, 0, int(width - 32), 10_000, int(flags), text)
+        height = text_rect.height() + 28
+        box = QRectF(area.center().x() - width / 2, area.center().y() - height / 2, width, height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 190))
+        painter.drawRoundedRect(box, 10, 10)
         painter.setPen(QColor("white"))
-        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+        painter.drawText(box.adjusted(16, 14, -16, -14), flags, text)
 
     def _draw_preedit(self, painter: QPainter, area: QRectF) -> None:
         box = QRectF(area.center().x() - 120, area.bottom() - 70, 240, 36)

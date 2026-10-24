@@ -1,6 +1,6 @@
 # PhonePilot MCP 도구 레퍼런스
 
-`scripts/gen_tool_reference.py`가 실제 서버 정의에서 생성했다(2026-10-12, 도구 57개). 직접 고치지 말고 스크립트를 다시 실행한다.
+`scripts/gen_tool_reference.py`가 실제 서버 정의에서 생성했다(2026-10-24, 도구 57개). 직접 고치지 말고 스크립트를 다시 실행한다.
 
 공통 규칙: 결과는 `structuredContent`(JSON) + 같은 내용의 텍스트 + 필요 시 이미지. 오류는 `isError: true`와 `{code, message, hint, retryable}`. 모든 출력은 비밀값·민감 패턴이 마스킹된 뒤 나간다.
 
@@ -142,7 +142,7 @@ Long press (default 800 ms). Target: element+obs_id (preferred), selector, or x_
 
 ### `swipe`
 
-Swipe from start=[x_norm,y_norm] to end=[x_norm,y_norm]. curve: ease|linear|ease_out.
+Swipe from start=[x_norm,y_norm] to end=[x_norm,y_norm]. curve: ease|linear|ease_out. Omitted duration_ms/arc use the gesture profile; hold_end=true rests before lifting (no fling).
 
 - 승인 게이트: 정책 엔진 분류 (대상에 따라 ALLOW/CONFIRM/CONFIRM_HIGH/BLOCK)
 
@@ -150,9 +150,10 @@ Swipe from start=[x_norm,y_norm] to end=[x_norm,y_norm]. curve: ease|linear|ease
 | --- | --- | --- | --- |
 | `start` | list[float] | 예 |  |
 | `end` | list[float] | 예 |  |
-| `duration_ms` | float |  | 300 |
+| `duration_ms` | float | null |  | null |
 | `curve` | str |  | "ease" |
-| `arc` | float |  | 0.0 |
+| `arc` | float | null |  | null |
+| `hold_end` | bool |  | false |
 | `reason` | str |  |  |
 
 ### `scroll`

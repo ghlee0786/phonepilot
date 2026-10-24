@@ -38,6 +38,9 @@ class ConnState(str, Enum):
     STOPPING = "STOPPING"
 
 
+AUTO_CONNECT_STATES = {ConnState.DISCONNECTED, ConnState.FAILED, ConnState.UNAUTHORIZED}
+
+
 class CoreRuntime:
     def __init__(self, config: Config | None = None, *, demo: bool = False, serial: str | None = None) -> None:
         self.config = config or load_config()
@@ -61,9 +64,12 @@ class CoreRuntime:
         from phonepilot.core.calibration import CalibrationRecorder, ProfileStore
 
         self.recorder = CalibrationRecorder()
+        self.last_calibration_samples: list[Any] = []
+        self.task_recorder: Any = None
         self.profiles = ProfileStore(appdata_dir() / "gesture_profiles.yaml")
         self.session_temp = temp_root() / f"session-{id(self):x}"
         self._reconnect_attempt = 0
+        self._tracking = False
         self._stopping = False
         self.wireless = False
         self._pairing: Any = None
@@ -138,6 +144,7 @@ class CoreRuntime:
         if self.manager is None:
             self.manager = DeviceManager(self.config.connection.adb_path)
             await asyncio.to_thread(self.manager.start_server)
+        self._ensure_tracking()
         try:
             adb_dev = await asyncio.to_thread(self.manager.device, self.serial)
         except PhonePilotError as e:
@@ -173,6 +180,29 @@ class CoreRuntime:
         dev.on_disconnect = lambda: self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._on_disconnect()))
         dev.on_size = lambda w, h: self.emit("frame_size", {"width": w, "height": h})
         return dev
+
+    # --------------------------------------------------------- auto connect
+    def _ensure_tracking(self) -> None:
+        """FR-DEV-003: watch adb so a phone that shows up again is connected without a click."""
+        if self._tracking or self.manager is None or self.demo:
+            return
+        self._tracking = True
+        self.manager.track(lambda entries: self.loop.call_soon_threadsafe(self._on_devices_changed, entries))
+
+    def _on_devices_changed(self, entries: list[Any]) -> None:
+        """Core loop. Plugged back in, or USB debugging just allowed: reconnect if we are not streaming."""
+        if self._stopping or self.state not in AUTO_CONNECT_STATES:
+            return
+        if any(e.state == "device" and (self.serial is None or e.serial == self.serial) for e in entries):
+            asyncio.ensure_future(self._auto_connect())
+
+    async def _auto_connect(self) -> None:
+        if self.state not in AUTO_CONNECT_STATES:  # another event already started a connect
+            return
+        try:
+            await self.connect()  # sets STARTING before its first await, so concurrent events see it
+        except PhonePilotError:
+            pass
 
     # -------------------------------------------------------------- wireless
     def _wireless_adb(self) -> Any:
@@ -304,6 +334,7 @@ class CoreRuntime:
         from phonepilot.core.calibration import GestureProfile, build_profile
 
         samples = self.recorder.stop()
+        self.last_calibration_samples = samples
         base = self.stack.tools.gesture_profile if self.stack is not None else GestureProfile()
         profile = build_profile(samples, base)
         if save and profile.calibrated and self.device is not None:
@@ -321,6 +352,90 @@ class CoreRuntime:
         if self.stack is not None:
             self.stack.tools.gesture_profile = GestureProfile()
         self.emit("gesture_profile", GestureProfile().to_dict())
+
+    def fidelity_report(self) -> dict[str, Any]:
+        """Human vs AI gesture similarity for the last calibration recording (FR-INP-035..039)."""
+        from phonepilot.core import fidelity
+
+        prof = self.stack.tools.gesture_profile if self.stack is not None else None
+        if prof is None:
+            from phonepilot.core.calibration import GestureProfile
+
+            prof = GestureProfile()
+        rep = fidelity.report(self.last_calibration_samples, prof)
+        rep["text"] = fidelity.format_report(rep)
+        return rep
+
+    # ------------------------------------------------------ task recording
+    def _refresh_observation(self) -> None:
+        """After each recorded step, observe the new screen so the next tap resolves to the right element."""
+        if self.stack is None:
+            return
+        obs = self.stack.observer
+
+        rec = self.task_recorder
+
+        async def refresh() -> None:
+            try:
+                await obs.wait_stable(timeout=2.0)
+                await obs.observe()
+                if rec is not None:
+                    rec.mark_fresh()
+            except Exception:  # recording falls back to coordinates for this step
+                log.debug("observation refresh during recording failed", exc_info=True)
+
+        asyncio.run_coroutine_threadsafe(refresh(), self.loop)
+
+    def start_task_recording(self) -> None:
+        """FR-SKL-014: record the human's demonstration in the mirror window."""
+        from phonepilot.skills.recorder import TaskRecorder
+
+        if self.stack is None or self.device is None:
+            raise PhonePilotError("DEVICE_NOT_FOUND", "기기가 연결되어 있지 않습니다")
+        stack, device = self.stack, self.device
+        rec = TaskRecorder(observation=lambda: stack.observer.last, display_size=lambda: device.display_size)
+        rec.on_event = self._refresh_observation
+        rec.start()
+        self.task_recorder = rec  # before the first refresh, which marks this recorder fresh
+        stack.arbiter.task_recorder = rec
+        self._refresh_observation()
+        self.emit("task_recording", {"active": True, "counts": {}})
+
+    def task_recording_counts(self) -> dict[str, int]:
+        return self.task_recorder.counts() if self.task_recorder is not None else {}
+
+    def finish_task_recording(self, name: str, description: str = "", save: bool = True) -> dict[str, Any]:
+        """Turn the recording into a user skill, approve it (the user made it) and reload the registry."""
+        from phonepilot.skills import loader
+        from phonepilot.skills.recorder import dump, safe_skill_name
+
+        rec = self.task_recorder
+        if self.stack is not None:
+            self.stack.arbiter.task_recorder = None
+        self.task_recorder = None
+        if rec is None:
+            return {"saved": False, "steps": 0}
+        events = rec.stop()
+        if not save or not events:
+            self.emit("task_recording", {"active": False, "saved": False})
+            return {"saved": False, "steps": len(events)}
+        skill_name = safe_skill_name(name)
+        text = dump(rec.to_skill(skill_name, description))
+        loaded = loader.parse(text)
+        path = appdata_dir() / "skills" / "recorded" / f"{skill_name.split('.', 1)[1]}.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        if self.stack is not None:
+            self.stack.registry.approve(loaded.sha256)
+        result = {
+            "saved": True,
+            "name": skill_name,
+            "path": str(path),
+            "steps": len(loaded.skill.steps),
+            "inputs": sorted(loaded.skill.inputs),
+        }
+        self.emit("task_recording", {"active": False, **result})
+        return result
 
     def _rebind(self, device: DeviceBackend) -> None:
         assert self.stack is not None
@@ -400,7 +515,9 @@ class CoreRuntime:
         self._setup_agent()
         self.mcp_token = load_or_create_token(localdata_dir() / "mcp.token", self.config.mcp.token_fixed)
         _, app = http_app(server, self.mcp_token)
-        config = uvicorn.Config(app, host="127.0.0.1", port=self.config.mcp.port, log_level="warning", lifespan="on")
+        # log_config=None: uvicorn's default config writes to sys.stderr, which a windowed (no console) build lacks;
+        # its loggers go through our redacting ring handler instead
+        config = uvicorn.Config(app, host="127.0.0.1", port=self.config.mcp.port, log_level="warning", lifespan="on", log_config=None)
         self._uvicorn = uvicorn.Server(config)
         self.loop.create_task(self._uvicorn.serve())
         self.emit("mcp", {"url": self.mcp_url})

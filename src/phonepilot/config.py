@@ -101,6 +101,13 @@ class IntegrationsConfig(BaseModel):
     kis: IntegrationToggle = Field(default_factory=IntegrationToggle)
 
 
+class UpdateConfig(BaseModel):
+    # public releases-only repository: the code repo is private, so installs could not read its releases
+    repo: str = "ghlee0786/phonepilot-releases"
+    check_on_start: bool = True
+    check_interval_hours: float = 24
+
+
 class Config(BaseModel):
     version: int = 1
     video: VideoConfig = Field(default_factory=VideoConfig)
@@ -112,6 +119,7 @@ class Config(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     recovery_vault: VaultConfig = Field(default_factory=VaultConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
+    update: UpdateConfig = Field(default_factory=UpdateConfig)
     allowed_push_dirs: list[str] = Field(default_factory=lambda: ["%USERPROFILE%/Documents/PhonePilot-Assets"])
 
 

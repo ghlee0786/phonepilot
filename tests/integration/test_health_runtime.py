@@ -68,9 +68,9 @@ def test_r2_manual_reconnect_replaces_a_session_that_looks_fine(rt):
 
 def test_r3_drop_handler_ignores_sessions_it_already_replaced(rt):
     old = rt.device
+    assert rt.call_sync(rt.reconnect_session("manual"))  # still the demo device: never touches a real phone
     rt.demo = False  # the drop handler only runs for real devices
     try:
-        assert rt.call_sync(rt.reconnect_session("manual"))
         rt.call_sync(rt._on_disconnect(old))  # noqa: SLF001  late "disconnected" from the closed session
         assert rt.state == ConnState.STREAMING and not [i for i in rt.incidents.items if i.problem == "DISCONNECTED"]
     finally:

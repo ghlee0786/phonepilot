@@ -115,6 +115,10 @@ def test_s1_calibration_by_mouse_matches_what_the_person_did(qtbot, window: Main
     qtbot.mouseClick(panel.calib_finish_button, Qt.MouseButton.LeftButton)
     prof = runtime.stack.tools.gesture_profile
     assert prof.calibrated
+    # the profile is on disk under this device's key, and the window says so
+    stored = yaml.safe_load(runtime.profiles.path.read_text(encoding="utf-8"))
+    assert stored[runtime.device.info.serial_hash]["samples"] == {"tap": 5, "long_press": 3, "swipe": 4}
+    assert "저장했습니다" in window.statusBar().currentMessage()
     assert 70 <= prof.tap_ms <= 150, prof
     assert 850 <= prof.long_press_ms <= 1100, prof
     # 1200 px in ~400 ms of movement

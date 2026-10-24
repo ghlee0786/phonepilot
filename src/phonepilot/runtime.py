@@ -460,12 +460,14 @@ class CoreRuntime:
         self.last_calibration_samples = samples
         base = self.stack.tools.gesture_profile if self.stack is not None else GestureProfile()
         profile = build_profile(samples, base)
+        saved = False
         if save and profile.calibrated and self.device is not None:
             self.profiles.save(self._device_key(), profile)
+            saved = True
             if self.stack is not None:
                 self.stack.tools.gesture_profile = profile
-        self.emit("calibration", {"active": False, "profile": profile.to_dict(), "saved": save and profile.calibrated})
-        return profile.to_dict()
+        self.emit("calibration", {"active": False, "profile": profile.to_dict(), "saved": saved})
+        return {**profile.to_dict(), "saved": saved}
 
     def reset_calibration(self) -> None:
         from phonepilot.core.calibration import GestureProfile

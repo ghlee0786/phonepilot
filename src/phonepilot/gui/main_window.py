@@ -745,8 +745,10 @@ class MainWindow(QMainWindow):
         prof = self.runtime.finish_calibration(save=True)
         self.device_panel.set_calibrating(False, counts)
         self.device_panel.set_profile(prof)
-        if prof.get("calibrated"):
-            self.statusBar().showMessage("제스처 프로필을 저장했습니다", 5000)
+        if prof.get("saved"):
+            self.statusBar().showMessage(f"제스처 프로필을 저장했습니다 ({self.runtime.profiles.path})", 8000)
+        elif prof.get("calibrated"):
+            QMessageBox.warning(self, "제스처 보정", "폰이 연결되어 있지 않아 저장하지 못했습니다. 연결한 뒤 다시 보정해 주세요.")
         else:
             self.statusBar().showMessage("기록이 부족해 저장하지 않았습니다 (탭 3회 또는 스와이프 3회 이상 필요)", 8000)
 
